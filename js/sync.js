@@ -4,10 +4,6 @@
 
 'use strict';
 
-// ============================================
-// FIREBASE CONFIG
-// ============================================
-
 const FIREBASE_CONFIG = {
   apiKey:            "AIzaSyDnqPIAoW-YMJ4GnC_frfph2TS3_gGUJ7c",
   authDomain:        "my-ledger-155c1.firebaseapp.com",
@@ -24,29 +20,23 @@ const FIREBASE_SCRIPTS = [
 ];
 
 const SYNC_STORES = [
-  'accounts', 'transactions', 'budgets',
-  'goals', 'debts', 'recurring'
+  'accounts','transactions','budgets',
+  'goals','debts','recurring'
 ];
 
-// ============================================
-// STATE
-// ============================================
-
-let _firebaseApp  = null;
-let _firestore    = null;
-let _auth         = null;
-let _currentUser  = null;
-let _syncReady    = false;
+let _firebaseApp   = null;
+let _firestore     = null;
+let _auth          = null;
+let _currentUser   = null;
+let _syncReady     = false;
 let _unsubscribers = [];
 
 // ============================================
-// LOAD FIREBASE SCRIPTS DYNAMICALLY
-// (avoids module/CDN blocking issues)
+// LOAD FIREBASE
 // ============================================
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
-    // Check if already loaded
     if (document.querySelector(`script[src="${src}"]`)) {
       resolve(); return;
     }
@@ -60,12 +50,10 @@ function loadScript(src) {
 
 async function loadFirebase() {
   try {
-    // Load all Firebase scripts one by one
     for (const src of FIREBASE_SCRIPTS) {
       await loadScript(src);
     }
 
-    // Initialize Firebase app
     if (!firebase.apps.length) {
       _firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
     } else {
@@ -75,12 +63,10 @@ async function loadFirebase() {
     _auth      = firebase.auth();
     _firestore = firebase.firestore();
 
-    // Enable offline persistence
     await _firestore.enablePersistence({ synchronizeTabs: true })
       .catch(err => {
         if (err.code === 'failed-precondition') {
-          // Multiple tabs open — persistence only works in one
-          console.warn('Firestore persistence: multiple tabs open');
+          console.warn('Firestore: multiple tabs open');
         } else if (err.code === 'unimplemented') {
           console.warn('Firestore persistence not supported');
         }
@@ -94,43 +80,39 @@ async function loadFirebase() {
 }
 
 // ============================================
-// INIT SYNC — called from app.js
+// INIT SYNC
 // ============================================
 
 async function initSync() {
   setSyncStatus('pending');
 
-  // Load Firebase
   const loaded = await loadFirebase();
   if (!loaded) {
     setSyncStatus('offline');
     showToast('Sync unavailable. Running offline.', 'warning', 3000);
+    await launchMainApp();
     return;
   }
 
-  // Check if already signed in
   _auth.onAuthStateChanged(async (user) => {
     if (user) {
-      // Already signed in
       _currentUser = user;
       _syncReady   = true;
       await onSignedIn(user);
     } else {
-      // Not signed in yet
-      // Check if user previously skipped
       const skipped = getSetting('syncSkipped', false);
       if (skipped) {
         setSyncStatus('offline');
+        await launchMainApp();
         return;
       }
-      // Show sign-in screen
       showSyncLoginScreen();
     }
   });
 }
 
 // ============================================
-// SIGN IN WITH GOOGLE
+// GOOGLE SIGN IN
 // ============================================
 
 async function signInWithGoogle() {
@@ -144,7 +126,7 @@ async function signInWithGoogle() {
     setSetting('syncSkipped', false);
     await onSignedIn(_currentUser);
   } catch (err) {
-    console.error('Google sign-in error:', err);
+    console.error('Sign-in error:', err);
     setSyncStatus('offline');
     showToast('Sign-in failed. Running offline.', 'error', 3000);
     hideSyncLoginScreen();
@@ -157,23 +139,14 @@ async function signInWithGoogle() {
 // ============================================
 
 async function onSignedIn(user) {
-  console.log('Signed in as:', user.email);
   hideSyncLoginScreen();
-
-  // Pull from cloud first
   await pullFromCloud();
-
-  // Push local data to cloud
   await pushToCloud();
-
-  // Start real-time listeners
   startRealtimeListeners();
-
   setSyncStatus('ok');
   setSetting('lastSynced', new Date().toISOString());
   updateLastSyncedLabel();
 
-  // Launch or refresh app
   if (typeof appInitialized !== 'undefined' && appInitialized) {
     await refreshAll();
   } else {
@@ -219,18 +192,21 @@ async function pushToCloud() {
 
     for (const store of SYNC_STORES) {
       const items = await dbGetAll(store);
-      const batch = db.batch();
+      if (items.length === 0) continue;
 
-      for (const item of items) {
-        const ref = db
-          .collection('users')
-          .doc(uid)
-          .collection(store)
-          .doc(item.id);
-        batch.set(ref, item, { merge: true });
+      // Firestore batch limit is 500
+      const chunkSize = 400;
+      for (let i = 0; i < items.length; i += chunkSize) {
+        const chunk = items.slice(i, i + chunkSize);
+        const batch = db.batch();
+        chunk.forEach(item => {
+          const ref = db
+            .collection('users').doc(uid)
+            .collection(store).doc(item.id);
+          batch.set(ref, item, { merge: true });
+        });
+        await batch.commit();
       }
-
-      if (items.length > 0) await batch.commit();
     }
 
     setSyncStatus('ok');
@@ -256,16 +232,12 @@ async function pullFromCloud() {
 
     for (const store of SYNC_STORES) {
       const snapshot = await db
-        .collection('users')
-        .doc(uid)
-        .collection(store)
-        .get();
+        .collection('users').doc(uid)
+        .collection(store).get();
 
       for (const docSnap of snapshot.docs) {
         const cloudItem = docSnap.data();
         const localItem = await dbGet(store, cloudItem.id);
-
-        // Take the most recently updated version
         if (!localItem ||
             (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
           await dbPut(store, cloudItem);
@@ -284,7 +256,6 @@ async function pullFromCloud() {
 
 function startRealtimeListeners() {
   stopRealtimeListeners();
-
   if (!_syncReady || !_currentUser || !_firestore) return;
 
   const uid = _currentUser.uid;
@@ -292,8 +263,7 @@ function startRealtimeListeners() {
 
   SYNC_STORES.forEach(store => {
     const unsub = db
-      .collection('users')
-      .doc(uid)
+      .collection('users').doc(uid)
       .collection(store)
       .onSnapshot(async (snapshot) => {
         let changed = false;
@@ -318,7 +288,9 @@ function startRealtimeListeners() {
 
         if (changed && typeof renderDashboard === 'function') {
           await renderDashboard();
-          await renderAccountCards();
+          if (typeof renderAccountCards === 'function') {
+            await renderAccountCards();
+          }
         }
 
       }, (err) => {
@@ -336,21 +308,17 @@ function stopRealtimeListeners() {
 }
 
 // ============================================
-// SYNC A SINGLE ITEM (called after every save)
+// SYNC SINGLE ITEM
 // ============================================
 
 async function syncItem(store, item) {
   if (!_syncReady || !_currentUser || !_firestore) return;
-
   try {
     const uid = _currentUser.uid;
     await _firestore
-      .collection('users')
-      .doc(uid)
-      .collection(store)
-      .doc(item.id)
+      .collection('users').doc(uid)
+      .collection(store).doc(item.id)
       .set(item, { merge: true });
-
     setSyncStatus('ok');
     setSetting('lastSynced', new Date().toISOString());
     updateLastSyncedLabel();
@@ -362,14 +330,11 @@ async function syncItem(store, item) {
 
 async function deleteSyncItem(store, id) {
   if (!_syncReady || !_currentUser || !_firestore) return;
-
   try {
     const uid = _currentUser.uid;
     await _firestore
-      .collection('users')
-      .doc(uid)
-      .collection(store)
-      .doc(id)
+      .collection('users').doc(uid)
+      .collection(store).doc(id)
       .delete();
   } catch (err) {
     console.error(`Delete sync error (${store}):`, err);
@@ -403,8 +368,8 @@ function setSyncStatus(status) {
   };
 
   if (map[status]) {
-    label.textContent  = map[status].text;
-    label.style.color  = map[status].color;
+    label.textContent = map[status].text;
+    label.style.color = map[status].color;
   }
 }
 
@@ -427,7 +392,7 @@ function updateLastSyncedLabel() {
 function initForceSyncBtn() {
   el('force-sync-btn')?.addEventListener('click', async () => {
     if (!_syncReady) {
-      showToast('Not signed in. Tap sync icon to sign in.', 'warning');
+      showToast('Not signed in to sync', 'warning');
       return;
     }
     showToast('Syncing...', 'default', 1500);
