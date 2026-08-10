@@ -150,6 +150,7 @@ function getSettings() {
 }
 
 function saveSettings(settings) {
+  // Raw save — no sync trigger (used by pullSettings)
   localStorage.setItem('ml_settings', JSON.stringify(settings));
 }
 
@@ -161,7 +162,7 @@ function getSetting(key, defaultVal) {
 function setSetting(key, value) {
   const s = getSettings();
   s[key]  = value;
-  saveSettings(s);
+  localStorage.setItem('ml_settings', JSON.stringify(s));
   triggerSettingsSync();
 }
 
@@ -263,12 +264,10 @@ function getIncomeCategories() {
 
 function saveExpenseCategories(cats) {
   localStorage.setItem('ml_expense_cats', JSON.stringify(cats));
-  triggerSettingsSync();
 }
 
 function saveIncomeCategories(cats) {
   localStorage.setItem('ml_income_cats', JSON.stringify(cats));
-  triggerSettingsSync();
 }
 
 // Smart ordering: sort by usage frequency
@@ -328,7 +327,6 @@ function getVendorPresets() {
 
 function saveVendorPresets(vendors) {
   localStorage.setItem('ml_vendors', JSON.stringify(vendors));
-  triggerSettingsSync();
 }
 
 function getSortedVendors() {
@@ -726,11 +724,10 @@ function maskBalance(amount, key = 'total') {
 // ============================================
 
 function triggerSettingsSync() {
-  if (typeof syncSettings === 'function') {
-    // Debounce to avoid rapid-fire syncs
-    if (window._settingsSyncTimer) clearTimeout(window._settingsSyncTimer);
-    window._settingsSyncTimer = setTimeout(() => {
-      syncSettings();
-    }, 1000);
-  }
+  if (typeof syncSettings !== 'function') return;
+  if (window._settingsSyncTimer) clearTimeout(window._settingsSyncTimer);
+  window._settingsSyncTimer = setTimeout(() => {
+    syncSettings();
+  }, 1500);
+}
 }
