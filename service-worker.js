@@ -1,4 +1,4 @@
-const CACHE_NAME = 'my-ledger-v1';
+const CACHE_NAME = 'my-ledger-v2';
 
 const ASSETS = [
   '/my-ledger/',
@@ -7,6 +7,7 @@ const ASSETS = [
   '/my-ledger/css/style.css',
   '/my-ledger/js/utils.js',
   '/my-ledger/js/db.js',
+  '/my-ledger/js/sync.js',
   '/my-ledger/js/accounts.js',
   '/my-ledger/js/transactions.js',
   '/my-ledger/js/dashboard.js',
@@ -20,63 +21,68 @@ const ASSETS = [
   '/my-ledger/js/app.js'
 ];
 
-// INSTALL — cache all assets
+// INSTALL
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then(cache => {
-      return cache.addAll(ASSETS);
-    }).then(() => self.skipWaiting())
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(ASSETS))
+      .then(() => self.skipWaiting())  // ← activate immediately
   );
 });
 
-// ACTIVATE — delete old caches
+// ACTIVATE — delete ALL old caches
 self.addEventListener('activate', event => {
   event.waitUntil(
-    caches.keys().then(keys => {
-      return Promise.all(
+    caches.keys().then(keys =>
+      Promise.all(
         keys
           .filter(key => key !== CACHE_NAME)
           .map(key => caches.delete(key))
-      );
-    }).then(() => self.clients.claim())
+      )
+    ).then(() => self.clients.claim())  // ← take control immediately
   );
 });
 
-// FETCH — serve from cache first, fallback to network
+// FETCH — network first for HTML, cache first for assets
 self.addEventListener('fetch', event => {
-  // Skip non-GET requests
   if (event.request.method !== 'GET') return;
-
-  // Skip cross-origin requests
   if (!event.request.url.startsWith(self.location.origin)) return;
 
-  event.respondWith(
-    caches.match(event.request).then(cached => {
-      if (cached) return cached;
+  const isHTML = event.request.destination === 'document' ||
+                 event.request.url.endsWith('.html');
 
-      return fetch(event.request).then(response => {
-        // Only cache valid responses
-        if (!response || response.status !== 200 || response.type !== 'basic') {
+  if (isHTML) {
+    // HTML: try network first, fallback to cache
+    event.respondWith(
+      fetch(event.request)
+        .then(response => {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then(cache =>
+            cache.put(event.request, clone)
+          );
           return response;
-        }
-        const responseClone = response.clone();
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(event.request, responseClone);
+        })
+        .catch(() => caches.match(event.request))
+    );
+  } else {
+    // Assets: cache first, fallback to network
+    event.respondWith(
+      caches.match(event.request).then(cached => {
+        return cached || fetch(event.request).then(response => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then(cache =>
+              cache.put(event.request, clone)
+            );
+          }
+          return response;
         });
-        return response;
-      }).catch(() => {
-        // If fetch fails and it's a page request, serve index.html
-        if (event.request.destination === 'document') {
-          return caches.match('/my-ledger/index.html');
-        }
-      });
-    })
-  );
+      })
+    );
+  }
 });
 
-// MESSAGE — force update cache when new version deployed
+// MESSAGE
 self.addEventListener('message', event => {
-  if (event.data === 'skipWaiting') {
-    self.skipWaiting();
-  }
+  if (event.data === 'skipWaiting') self.skipWaiting();
 });
