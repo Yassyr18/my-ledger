@@ -9,44 +9,36 @@
 // ============================================
 
 async function openTransactionModal(type = 'expense', prefill = {}) {
-  const modal    = el('transaction-modal');
-  const titleEl  = el('transaction-modal-title');
+  const modal     = el('transaction-modal');
+  const titleEl   = el('transaction-modal-title');
   const typeInput = el('transaction-type');
 
-  // Set title
   const titles = {
     expense:  'Add Expense',
     income:   'Add Income',
     transfer: 'Add Transfer',
     paylater: 'Add Pay Later'
   };
-  titleEl.textContent = prefill.id ? 'Edit Transaction' : (titles[type] || 'Add Transaction');
+
+  titleEl.textContent = prefill.id
+    ? 'Edit Transaction'
+    : (titles[type] || 'Add Transaction');
   typeInput.value = type;
 
-  // Reset form
   resetTransactionForm();
-
-  // Show/hide field groups based on type
   updateTransactionFormLayout(type);
-
-  // Set default date/time
   el('transaction-date').value = nowISO();
 
-  // Prefill if editing or paying later
   if (Object.keys(prefill).length > 0) {
     prefillTransactionForm(prefill, type);
   }
 
-  // Populate category grid
   renderCategoryGrid(type);
-
-  // Set default account
   await populateAccountSelects();
   setDefaultAccount(type);
+  renderVendorPresets(prefill.vendor || '');
 
   modal.classList.remove('hidden');
-
-  // Focus amount
   setTimeout(() => el('transaction-amount').focus(), 300);
 }
 
@@ -65,9 +57,8 @@ function resetTransactionForm() {
   el('transaction-recurring').checked = false;
   el('necessity-slider').value        = 3;
   hide('recurring-options');
-
-  // Deselect all categories
   qsa('.cat-option').forEach(opt => opt.classList.remove('selected'));
+  qsa('.vendor-preset-chip').forEach(chip => chip.classList.remove('selected'));
 }
 
 function prefillTransactionForm(data, type) {
@@ -87,9 +78,7 @@ function prefillTransactionForm(data, type) {
     }, 50);
   }
 
-  if (data.accountId) {
-    el('transaction-account').value = data.accountId;
-  }
+  if (data.accountId) el('transaction-account').value = data.accountId;
 
   if (type === 'transfer') {
     if (data.fromAccountId) el('transfer-from').value = data.fromAccountId;
@@ -99,14 +88,13 @@ function prefillTransactionForm(data, type) {
 }
 
 function formatDateForInput(dateStr) {
-  const d = new Date(dateStr);
+  const d   = new Date(dateStr);
   const pad = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function updateTransactionFormLayout(type) {
-  // Account group (hidden for pay later — we don't know account yet)
-  toggle('account-group',      type !== 'transfer' && type !== 'paylater');
+  toggle('account-group',       type !== 'transfer' && type !== 'paylater');
   toggle('transfer-from-group', type === 'transfer');
   toggle('transfer-to-group',   type === 'transfer');
   toggle('transfer-fee-group',  type === 'transfer');
@@ -118,17 +106,80 @@ function updateTransactionFormLayout(type) {
 
 function setDefaultAccount(type) {
   const settings = getSettings();
-  const sel = el('transaction-account');
+  const sel      = el('transaction-account');
   if (!sel) return;
 
-  if (type === 'expense' || type === 'paylater') {
-    if (settings.defaultExpenseAccount) {
-      sel.value = settings.defaultExpenseAccount;
-    }
-  } else if (type === 'income') {
-    if (settings.defaultIncomeAccount) {
-      sel.value = settings.defaultIncomeAccount;
-    }
+  if ((type === 'expense' || type === 'paylater') && settings.defaultExpenseAccount) {
+    sel.value = settings.defaultExpenseAccount;
+  } else if (type === 'income' && settings.defaultIncomeAccount) {
+    sel.value = settings.defaultIncomeAccount;
+  }
+}
+
+// ============================================
+// VENDOR PRESETS
+// ============================================
+
+function renderVendorPresets(selectedVendor = '') {
+  const group = el('vendor-group');
+  if (!group) return;
+
+  // Remove old presets if any
+  const oldPresets = qs('.vendor-presets', group);
+  if (oldPresets) oldPresets.remove();
+
+  const vendors     = getSortedVendors();
+  if (vendors.length === 0) return;
+
+  const presetsWrap = document.createElement('div');
+  presetsWrap.className = 'vendor-presets';
+
+  vendors.forEach(v => {
+    const chip = document.createElement('button');
+    chip.type        = 'button';
+    chip.className   = 'vendor-preset-chip' +
+      (v.label === selectedVendor ? ' selected' : '');
+    chip.textContent = v.label;
+    chip.dataset.label = v.label;
+
+    chip.addEventListener('click', () => {
+      const input    = el('transaction-vendor');
+      const isSelected = chip.classList.contains('selected');
+
+      // Deselect all chips first
+      qsa('.vendor-preset-chip', presetsWrap).forEach(c =>
+        c.classList.remove('selected')
+      );
+
+      if (isSelected) {
+        // Clicking selected chip deselects
+        if (input) input.value = '';
+      } else {
+        chip.classList.add('selected');
+        if (input) input.value = v.label;
+      }
+      haptic('light');
+    });
+
+    presetsWrap.appendChild(chip);
+  });
+
+  // Insert presets above the input
+  const input = el('transaction-vendor');
+  if (input) group.insertBefore(presetsWrap, input);
+
+  // Sync input → chip selection
+  const input2 = el('transaction-vendor');
+  if (input2) {
+    input2.addEventListener('input', () => {
+      const val = input2.value.trim().toLowerCase();
+      qsa('.vendor-preset-chip', presetsWrap).forEach(c => {
+        c.classList.toggle(
+          'selected',
+          c.dataset.label.toLowerCase() === val
+        );
+      });
+    });
   }
 }
 
@@ -140,7 +191,8 @@ function renderCategoryGrid(type) {
   const grid = el('category-grid');
   if (!grid) return;
 
-  const cats = (type === 'income') ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  // Use smart-sorted categories
+  const cats = getSortedCategories(type === 'income' ? 'income' : 'expense');
 
   grid.innerHTML = cats.map(cat => `
     <button class="cat-option" data-id="${cat.id}" type="button">
@@ -151,8 +203,15 @@ function renderCategoryGrid(type) {
 
   qsa('.cat-option', grid).forEach(opt => {
     opt.addEventListener('click', () => {
+      const alreadySelected = opt.classList.contains('selected');
+
+      // Deselect all
       qsa('.cat-option', grid).forEach(o => o.classList.remove('selected'));
-      opt.classList.add('selected');
+
+      // Toggle: if was selected, leave all deselected
+      if (!alreadySelected) {
+        opt.classList.add('selected');
+      }
       haptic('light');
     });
   });
@@ -167,14 +226,12 @@ async function saveTransactionFromModal() {
   const id     = el('transaction-id').value;
   const amount = parseAmount(el('transaction-amount').value);
 
-  // Validate amount
   if (!amount || amount <= 0) {
     showToast('Please enter a valid amount', 'error');
     el('transaction-amount').focus();
     return;
   }
 
-  // Validate date
   const dateVal = el('transaction-date').value;
   if (!dateVal) {
     showToast('Please select a date', 'error');
@@ -183,7 +240,6 @@ async function saveTransactionFromModal() {
 
   const date = new Date(dateVal).toISOString();
 
-  // Build transaction object
   let tx = {
     id:          id || generateId(),
     type,
@@ -218,7 +274,7 @@ async function saveTransactionFromModal() {
     tx.toAccountId   = toId;
     tx.fee           = fee;
 
-    // If there's a fee, save it as a separate expense
+    // Fee saved as separate expense
     if (fee > 0) {
       const feeTx = {
         id:          generateId(),
@@ -227,7 +283,7 @@ async function saveTransactionFromModal() {
         date,
         accountId:   fromId,
         category:    'charges',
-        description: `Transfer fee`,
+        description: 'Transfer fee',
         note:        `Fee for transfer of ${formatCurrency(amount)}`,
         createdAt:   Date.now(),
         updatedAt:   Date.now()
@@ -236,11 +292,13 @@ async function saveTransactionFromModal() {
     }
 
   } else if (type === 'paylater') {
-    const catEl = qs('.cat-option.selected');
-    tx.category  = catEl ? catEl.dataset.id : 'other';
-    tx.vendor    = el('transaction-vendor').value.trim();
-    tx.necessity = parseInt(el('necessity-slider').value);
-    tx.status    = 'pending';
+    const catEl    = qs('.cat-option.selected');
+    tx.category    = catEl ? catEl.dataset.id : 'other';
+    tx.vendor      = el('transaction-vendor').value.trim();
+    tx.necessity   = parseInt(el('necessity-slider').value);
+    tx.status      = 'pending';
+    if (tx.vendor) recordVendorUsage(tx.vendor);
+    if (tx.category) recordCategoryUsage(tx.category);
 
   } else if (type === 'expense') {
     const accountId = el('transaction-account').value;
@@ -248,11 +306,13 @@ async function saveTransactionFromModal() {
       showToast('Please select an account', 'error');
       return;
     }
-    const catEl = qs('.cat-option.selected');
-    tx.accountId = accountId;
-    tx.category  = catEl ? catEl.dataset.id : 'other';
-    tx.vendor    = el('transaction-vendor').value.trim();
-    tx.necessity = parseInt(el('necessity-slider').value);
+    const catEl    = qs('.cat-option.selected');
+    tx.accountId   = accountId;
+    tx.category    = catEl ? catEl.dataset.id : 'other';
+    tx.vendor      = el('transaction-vendor').value.trim();
+    tx.necessity   = parseInt(el('necessity-slider').value);
+    if (tx.vendor) recordVendorUsage(tx.vendor);
+    if (tx.category) recordCategoryUsage(tx.category);
 
   } else if (type === 'income') {
     const accountId = el('transaction-account').value;
@@ -260,10 +320,11 @@ async function saveTransactionFromModal() {
       showToast('Please select an account', 'error');
       return;
     }
-    const catEl = qs('.cat-option.selected');
+    const catEl  = qs('.cat-option.selected');
     tx.accountId = accountId;
     tx.category  = catEl ? catEl.dataset.id : 'other';
     tx.source    = el('transaction-source').value.trim();
+    if (tx.category) recordCategoryUsage(tx.category);
   }
 
   // Recurring
@@ -289,37 +350,39 @@ async function saveTransactionFromModal() {
   closeTransactionModal();
   showToast(id ? 'Transaction updated ✓' : 'Saved ✓', 'success');
   haptic('medium');
-
-  // Refresh everything
   await refreshAll();
 }
 
 // ============================================
-// PAY LATER — PAY NOW FLOW
+// PAY LATER — PAY NOW (single)
 // ============================================
 
 async function openPayNowModal(payLaterId) {
   const tx = await getTransaction(payLaterId);
   if (!tx) return;
 
-  // Fill summary
   el('paynow-paylater-id').value = payLaterId;
   el('paynow-amount').value      = tx.amount;
   el('paynow-date').value        = nowISO();
+  if (el('paynow-note')) el('paynow-note').value = '';
 
   el('paynow-summary').innerHTML = `
     <div class="paynow-summary-label">Paying for</div>
     <div class="paynow-summary-desc">
-      ${tx.description || getCategoryLabel(tx.category, 'expense')}
+      ${escapeHTML(tx.description ||
+        getCategoryLabel(tx.category, 'expense'))}
     </div>
-    ${tx.vendor ? `<div class="paynow-summary-vendor">📍 ${escapeHTML(tx.vendor)}</div>` : ''}
-    <div class="paynow-summary-amount">${formatCurrency(tx.amount)}</div>
+    ${tx.vendor
+      ? `<div class="paynow-summary-vendor">
+           📍 ${escapeHTML(tx.vendor)}
+         </div>` : ''}
+    <div class="paynow-summary-amount">
+      ${formatCurrency(tx.amount)}
+    </div>
   `;
 
-  // Populate account select
   await populateAccountSelects();
 
-  // Set default account
   const settings = getSettings();
   if (settings.defaultExpenseAccount) {
     el('paynow-account').value = settings.defaultExpenseAccount;
@@ -339,19 +402,13 @@ async function confirmPayNow() {
   const dateVal    = el('paynow-date').value;
   const note       = el('paynow-note')?.value?.trim() || '';
 
-  if (!accountId) {
-    showToast('Please select an account', 'error');
-    return;
-  }
-  if (!amount || amount <= 0) {
-    showToast('Please enter the amount paid', 'error');
-    return;
-  }
+  if (!accountId) { showToast('Please select an account', 'error'); return; }
+  if (!amount || amount <= 0) { showToast('Please enter the amount paid', 'error'); return; }
 
   const originalTx = await getTransaction(payLaterId);
   if (!originalTx) return;
 
-  // Update the pay later entry to paid
+  // Mark paylater as paid
   originalTx.status        = 'paid';
   originalTx.paidAt        = new Date(dateVal).toISOString();
   originalTx.paidAccountId = accountId;
@@ -360,28 +417,195 @@ async function confirmPayNow() {
   originalTx.updatedAt     = Date.now();
   await saveTransaction(originalTx);
 
-  // Also create a real expense transaction linked to this payment
+  // Create real expense — this is what affects the balance
   const expenseTx = {
-    id:              generateId(),
-    type:            'expense',
+    id:          generateId(),
+    type:        'expense',
     amount,
-    date:            new Date(dateVal).toISOString(),
+    date:        new Date(dateVal).toISOString(),
     accountId,
-    category:        originalTx.category || 'other',
-    description:     originalTx.description || 'Pay Later Payment',
-    vendor:          originalTx.vendor || '',
-    note:            note || `Payment for: ${originalTx.description || ''}`,
-    payLaterRef:     payLaterId,
-    createdAt:       Date.now(),
-    updatedAt:       Date.now()
+    category:    originalTx.category || 'other',
+    description: originalTx.description || 'Pay Later Payment',
+    vendor:      originalTx.vendor || '',
+    note:        note || `Payment for: ${originalTx.description || ''}`,
+    payLaterRef: payLaterId,
+    createdAt:   Date.now(),
+    updatedAt:   Date.now()
   };
   await saveTransaction(expenseTx);
 
   closePayNowModal();
   showToast('Payment recorded ✓', 'success');
   haptic('medium');
-
   await refreshAll();
+}
+
+// ============================================
+// BULK PAY LATER
+// ============================================
+
+let bulkSelectedIds = new Set();
+let bulkModeActive  = false;
+
+function initBulkPayLater() {
+  const toggleBtn = el('bulk-select-toggle');
+  if (!toggleBtn) return;
+
+  toggleBtn.addEventListener('click', () => {
+    bulkModeActive = !bulkModeActive;
+    bulkSelectedIds.clear();
+    toggleBtn.classList.toggle('active', bulkModeActive);
+    toggleBtn.textContent = bulkModeActive ? 'Cancel' : 'Select Multiple';
+    renderPayLaterPage();
+  });
+}
+
+async function openBulkPayModal() {
+  if (bulkSelectedIds.size === 0) {
+    showToast('Select at least one item', 'warning');
+    return;
+  }
+
+  const allTx    = await getAllTransactions();
+  const selected = allTx.filter(tx => bulkSelectedIds.has(tx.id));
+  const total    = selected.reduce((s, tx) => s + tx.amount, 0);
+
+  const existing = el('bulk-pay-sheet');
+  if (existing) existing.remove();
+
+  const sheet = document.createElement('div');
+  sheet.id    = 'bulk-pay-sheet';
+  sheet.className = 'modal';
+  sheet.innerHTML = `
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet" style="max-height:85vh">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title">Pay ${selected.length} Items</span>
+        <button class="modal-save" id="bulk-pay-confirm">Pay</button>
+      </div>
+      <div class="modal-body">
+        <div class="paynow-summary" style="margin-bottom:16px">
+          <div class="paynow-summary-label">
+            ${selected.length} item${selected.length > 1 ? 's' : ''} selected
+          </div>
+          <div class="paynow-summary-amount">${formatCurrency(total)}</div>
+        </div>
+
+        <div class="bulk-pay-items-list">
+          ${selected.map(tx => `
+            <div class="bulk-pay-item-row">
+              <div class="bulk-pay-item-desc">
+                ${escapeHTML(tx.description ||
+                  getCategoryLabel(tx.category, 'expense'))}
+                ${tx.vendor
+                  ? `<span style="color:var(--text3)">
+                       · ${escapeHTML(tx.vendor)}</span>`
+                  : ''}
+              </div>
+              <div class="bulk-pay-item-amount">
+                ${formatCurrency(tx.amount)}
+              </div>
+            </div>
+          `).join('')}
+        </div>
+
+        <div class="form-group">
+          <label>Pay From Account</label>
+          <select id="bulk-pay-account" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Date Paid</label>
+          <input type="datetime-local" id="bulk-pay-date"
+                 class="form-input" value="${nowISO()}" />
+        </div>
+        <div class="form-group">
+          <label>Note (optional)</label>
+          <input type="text" id="bulk-pay-note"
+                 class="form-input"
+                 placeholder="e.g. Paid all at once" />
+        </div>
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(sheet);
+
+  const close = () => sheet.remove();
+  qs('.modal-backdrop', sheet).addEventListener('click', close);
+  qs('.modal-close', sheet).addEventListener('click', close);
+
+  // Populate account select
+  const accounts = await getAllAccounts();
+  const accSel   = el('bulk-pay-account');
+  accounts.forEach(acc => {
+    const opt       = document.createElement('option');
+    opt.value       = acc.id;
+    opt.textContent = `${getAccountIcon(acc.type)} ${acc.name}`;
+    accSel.appendChild(opt);
+  });
+
+  // Set default account
+  const settings = getSettings();
+  if (settings.defaultExpenseAccount) {
+    accSel.value = settings.defaultExpenseAccount;
+  }
+
+  el('bulk-pay-confirm').addEventListener('click', async () => {
+    const accountId = accSel.value;
+    const dateVal   = el('bulk-pay-date').value;
+    const note      = el('bulk-pay-note').value.trim();
+
+    if (!accountId) {
+      showToast('Please select an account', 'error');
+      return;
+    }
+
+    // Process each selected paylater
+    for (const tx of selected) {
+      // Mark as paid
+      tx.status        = 'paid';
+      tx.paidAt        = new Date(dateVal).toISOString();
+      tx.paidAccountId = accountId;
+      tx.paidAmount    = tx.amount;
+      tx.paidNote      = note;
+      tx.updatedAt     = Date.now();
+      await saveTransaction(tx);
+
+      // Create expense for each
+      await saveTransaction({
+        id:          generateId(),
+        type:        'expense',
+        amount:      tx.amount,
+        date:        new Date(dateVal).toISOString(),
+        accountId,
+        category:    tx.category || 'other',
+        description: tx.description || 'Pay Later Payment',
+        vendor:      tx.vendor || '',
+        note:        note || `Bulk payment`,
+        payLaterRef: tx.id,
+        createdAt:   Date.now(),
+        updatedAt:   Date.now()
+      });
+    }
+
+    close();
+
+    // Reset bulk mode
+    bulkSelectedIds.clear();
+    bulkModeActive = false;
+    const toggleBtn = el('bulk-select-toggle');
+    if (toggleBtn) {
+      toggleBtn.classList.remove('active');
+      toggleBtn.textContent = 'Select Multiple';
+    }
+
+    showToast(`${selected.length} payments recorded ✓`, 'success');
+    haptic('medium');
+    await refreshAll();
+  });
 }
 
 // ============================================
@@ -395,35 +619,32 @@ async function renderTransactionList(containerId, options = {}) {
   let transactions = await getAllTransactions();
   const accounts   = await getAllAccounts();
 
-  // Filter by type
+  // Filters
   if (options.type && options.type !== 'all') {
     transactions = transactions.filter(tx => tx.type === options.type);
   }
-
-  // Filter by account
   if (options.accountId && options.accountId !== 'all') {
     transactions = transactions.filter(tx =>
-      tx.accountId === options.accountId ||
+      tx.accountId     === options.accountId ||
       tx.fromAccountId === options.accountId ||
-      tx.toAccountId === options.accountId
+      tx.toAccountId   === options.accountId
     );
   }
-
-  // Filter by period
   if (options.period) {
-    transactions = filterByPeriod(transactions, options.period, options.dateFrom, options.dateTo);
+    transactions = filterByPeriod(
+      transactions, options.period,
+      options.dateFrom, options.dateTo
+    );
   }
-
-  // Pay later filter
   if (options.plFilter && options.plFilter !== 'all') {
     transactions = transactions.filter(tx => {
-      if (options.plFilter === 'pending') return tx.type === 'paylater' && tx.status === 'pending';
-      if (options.plFilter === 'paid')    return tx.type === 'paylater' && tx.status === 'paid';
+      if (options.plFilter === 'pending')
+        return tx.type === 'paylater' && tx.status === 'pending';
+      if (options.plFilter === 'paid')
+        return tx.type === 'paylater' && tx.status === 'paid';
       return true;
     });
   }
-
-  // Limit for recent
   if (options.limit) {
     transactions = transactions.slice(0, options.limit);
   }
@@ -438,6 +659,12 @@ async function renderTransactionList(containerId, options = {}) {
     return;
   }
 
+  // Calculate running balances if accountId filter is set
+  let runningBalances = {};
+  if (options.accountId && options.accountId !== 'all') {
+    runningBalances = await getRunningBalances(options.accountId);
+  }
+
   // Group by date
   const groups = {};
   transactions.forEach(tx => {
@@ -449,33 +676,41 @@ async function renderTransactionList(containerId, options = {}) {
   container.innerHTML = Object.entries(groups).map(([dateLabel, txs]) => `
     <div class="tx-date-group">
       <div class="tx-date-label">${dateLabel}</div>
-      ${txs.map(tx => renderTxItem(tx, accounts)).join('')}
+      ${txs.map(tx => renderTxItem(
+        tx, accounts, runningBalances,
+        options.bulkMode, bulkSelectedIds
+      )).join('')}
     </div>
   `).join('');
 
-  // Attach events
-  attachTxItemEvents(container);
+  attachTxItemEvents(container, options.bulkMode);
 }
 
-function renderTxItem(tx, accounts = []) {
+// ============================================
+// RENDER SINGLE TX ITEM
+// ============================================
+
+function renderTxItem(tx, accounts = [], runningBalances = {},
+                      bulkMode = false, selectedIds = new Set()) {
   const isIncome   = tx.type === 'income';
   const isTransfer = tx.type === 'transfer';
   const isPayLater = tx.type === 'paylater';
   const isPending  = isPayLater && tx.status === 'pending';
   const isPaid     = isPayLater && tx.status === 'paid';
+  const isSelected = selectedIds.has(tx.id);
 
   // Icon
   let icon = '';
-  if (isTransfer)   icon = '⇄';
+  if (isTransfer)      icon = '⇄';
   else if (isPayLater) icon = '⏰';
   else icon = getCategoryIcon(tx.category, tx.type);
 
   // Description
   let desc = tx.description || '';
   if (!desc) {
-    if (isTransfer)   desc = 'Transfer';
+    if (isTransfer)      desc = 'Transfer';
     else if (isPayLater) desc = getCategoryLabel(tx.category, 'expense');
-    else desc = getCategoryLabel(tx.category, tx.type);
+    else                 desc = getCategoryLabel(tx.category, tx.type);
   }
 
   // Meta line
@@ -493,25 +728,49 @@ function renderTxItem(tx, accounts = []) {
     if (acc) meta = acc.name;
   }
 
-  // Amount display
+  // Amount
   const sign   = isIncome ? '+' : (isTransfer ? '' : '-');
-  const amtCls = isIncome ? 'income' : (isTransfer ? 'transfer' : (isPayLater ? 'paylater' : 'expense'));
+  const amtCls = isIncome ? 'income'
+    : isTransfer ? 'transfer'
+    : isPayLater ? 'paylater'
+    : 'expense';
 
-  // Right side button
+  // Running balance
+  const runBal = runningBalances[tx.id];
+  const runBalStr = runBal !== undefined
+    ? `<div class="tx-running-balance">
+         Balance after: ${formatCurrency(runBal)}
+       </div>`
+    : '';
+
+  // Right side
   let rightExtra = '';
-  if (isPending) {
-    rightExtra = `<button class="pay-now-btn" data-id="${tx.id}">PAY NOW</button>`;
+  if (bulkMode && isPending) {
+    rightExtra = `
+      <div class="tx-select-check ${isSelected ? 'checked' : ''}"
+           data-id="${tx.id}">
+        ${isSelected ? '✓' : ''}
+      </div>`;
+  } else if (isPending) {
+    rightExtra = `
+      <button class="pay-now-btn" data-id="${tx.id}">
+        PAY NOW
+      </button>`;
   } else if (isPaid) {
     rightExtra = `<span class="paid-badge">PAID ✓</span>`;
   }
 
   return `
-    <div class="tx-item ${isPending ? 'paylater-pending' : ''}" 
-         data-id="${tx.id}" data-type="${tx.type}">
+    <div class="tx-item
+         ${isPending ? 'paylater-pending' : ''}
+         ${isSelected ? 'selected-for-pay' : ''}"
+         data-id="${tx.id}"
+         data-type="${tx.type}">
       <div class="tx-icon ${amtCls}">${icon}</div>
       <div class="tx-details">
         <div class="tx-description">${escapeHTML(desc)}</div>
         <div class="tx-meta">${escapeHTML(meta)}</div>
+        ${runBalStr}
       </div>
       <div class="tx-right">
         <div class="tx-amount ${amtCls}">
@@ -524,7 +783,11 @@ function renderTxItem(tx, accounts = []) {
   `;
 }
 
-function attachTxItemEvents(container) {
+// ============================================
+// ATTACH TX ITEM EVENTS
+// ============================================
+
+function attachTxItemEvents(container, bulkMode = false) {
   // PAY NOW buttons
   qsa('.pay-now-btn', container).forEach(btn => {
     btn.addEventListener('click', (e) => {
@@ -534,42 +797,111 @@ function attachTxItemEvents(container) {
     });
   });
 
-  // Tap on transaction to edit/view
+  // Bulk select checkboxes
+  qsa('.tx-select-check', container).forEach(check => {
+    check.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = check.dataset.id;
+      if (bulkSelectedIds.has(id)) {
+        bulkSelectedIds.delete(id);
+        check.classList.remove('checked');
+        check.textContent = '';
+        check.closest('.tx-item')?.classList.remove('selected-for-pay');
+      } else {
+        bulkSelectedIds.add(id);
+        check.classList.add('checked');
+        check.textContent = '✓';
+        check.closest('.tx-item')?.classList.add('selected-for-pay');
+      }
+      haptic('light');
+      updateBulkPayBar();
+    });
+  });
+
+  // Tap to view/edit
   qsa('.tx-item', container).forEach(item => {
     item.addEventListener('click', (e) => {
-      if (e.target.classList.contains('pay-now-btn')) return;
+      if (e.target.classList.contains('pay-now-btn')    ||
+          e.target.classList.contains('tx-select-check') ||
+          e.target.closest('.tx-select-check')) return;
+
+      if (bulkMode && item.dataset.type === 'paylater') {
+        // In bulk mode, tapping item toggles selection
+        const check = qs('.tx-select-check', item);
+        if (check) check.click();
+        return;
+      }
+
       openTxDetailSheet(item.dataset.id);
     });
   });
 }
 
 // ============================================
-// TRANSACTION DETAIL / EDIT / DELETE SHEET
+// BULK PAY BAR (shows at bottom of paylater page)
+// ============================================
+
+function updateBulkPayBar() {
+  const container = el('paylater-list');
+  if (!container) return;
+
+  let bar = el('bulk-pay-action-bar');
+
+  if (bulkSelectedIds.size === 0) {
+    if (bar) bar.remove();
+    return;
+  }
+
+  // Calculate total
+  getAllTransactions().then(txs => {
+    const selected = txs.filter(tx => bulkSelectedIds.has(tx.id));
+    const total    = selected.reduce((s, tx) => s + tx.amount, 0);
+
+    if (!bar) {
+      bar = document.createElement('div');
+      bar.id        = 'bulk-pay-action-bar';
+      bar.className = 'bulk-pay-bar';
+      el('page-paylater')?.appendChild(bar);
+    }
+
+    bar.innerHTML = `
+      <div>
+        <div class="bulk-pay-info">
+          ${bulkSelectedIds.size} selected
+        </div>
+        <div class="bulk-pay-total">${formatCurrency(total)}</div>
+      </div>
+      <button class="btn-accent-small" id="bulk-pay-now-btn">
+        Pay All
+      </button>
+    `;
+
+    el('bulk-pay-now-btn')?.addEventListener('click', openBulkPayModal);
+  });
+}
+
+// ============================================
+// TX DETAIL / OPTIONS SHEET
 // ============================================
 
 async function openTxDetailSheet(txId) {
-  const tx       = await getTransaction(txId);
+  const tx = await getTransaction(txId);
   if (!tx) return;
   const accounts = await getAllAccounts();
-
-  // For now use confirm to offer edit/delete options
-  // (a full detail sheet would be a separate modal — keeping it simple)
-  const desc = tx.description ||
-    getCategoryLabel(tx.category, tx.type) ||
-    tx.type;
-
   showTxOptions(tx, accounts);
 }
 
 function showTxOptions(tx, accounts) {
-  // Custom action sheet
   const existing = el('tx-options-sheet');
   if (existing) existing.remove();
 
   const isPayLaterPending = tx.type === 'paylater' && tx.status === 'pending';
+  const desc = tx.description ||
+    getCategoryLabel(tx.category, tx.type) ||
+    tx.type;
 
   const sheet = document.createElement('div');
-  sheet.id = 'tx-options-sheet';
+  sheet.id    = 'tx-options-sheet';
   sheet.className = 'modal';
   sheet.innerHTML = `
     <div class="modal-backdrop"></div>
@@ -577,22 +909,22 @@ function showTxOptions(tx, accounts) {
       <div class="modal-handle"></div>
       <div style="padding:16px">
         <div style="font-weight:600;font-size:16px;margin-bottom:4px">
-          ${escapeHTML(tx.description || getCategoryLabel(tx.category, tx.type) || 'Transaction')}
+          ${escapeHTML(desc)}
         </div>
         <div style="color:var(--text2);font-size:13px;margin-bottom:20px">
           ${formatDateTime(tx.date)} · ${formatCurrency(tx.amount)}
         </div>
         <div style="display:flex;flex-direction:column;gap:2px">
           ${!isPayLaterPending ? `
-          <button class="more-item" id="tx-opt-edit">
-            <span class="more-item-icon">✏️</span>
-            <span class="more-item-label">Edit</span>
-          </button>` : ''}
+            <button class="more-item" id="tx-opt-edit">
+              <span class="more-item-icon">✏️</span>
+              <span class="more-item-label">Edit</span>
+            </button>` : ''}
           ${isPayLaterPending ? `
-          <button class="more-item" id="tx-opt-paynow">
-            <span class="more-item-icon">💳</span>
-            <span class="more-item-label">Pay Now</span>
-          </button>` : ''}
+            <button class="more-item" id="tx-opt-paynow">
+              <span class="more-item-icon">💳</span>
+              <span class="more-item-label">Pay Now</span>
+            </button>` : ''}
           <button class="more-item settings-danger" id="tx-opt-delete">
             <span class="more-item-icon">🗑️</span>
             <span class="more-item-label">Delete</span>
@@ -607,21 +939,15 @@ function showTxOptions(tx, accounts) {
   const close = () => sheet.remove();
   qs('.modal-backdrop', sheet).addEventListener('click', close);
 
-  const editBtn = el('tx-opt-edit');
-  if (editBtn) {
-    editBtn.addEventListener('click', () => {
-      close();
-      openTransactionModal(tx.type, tx);
-    });
-  }
+  el('tx-opt-edit')?.addEventListener('click', () => {
+    close();
+    openTransactionModal(tx.type, tx);
+  });
 
-  const payBtn = el('tx-opt-paynow');
-  if (payBtn) {
-    payBtn.addEventListener('click', () => {
-      close();
-      openPayNowModal(tx.id);
-    });
-  }
+  el('tx-opt-paynow')?.addEventListener('click', () => {
+    close();
+    openPayNowModal(tx.id);
+  });
 
   el('tx-opt-delete').addEventListener('click', () => {
     close();
@@ -642,41 +968,25 @@ function showTxOptions(tx, accounts) {
 // ============================================
 
 function initTransactionEvents() {
-  // Save button
   el('transaction-save-btn').addEventListener('click', saveTransactionFromModal);
-
-  // Close
   qs('#transaction-modal .modal-close').addEventListener('click', closeTransactionModal);
   qs('#transaction-modal .modal-backdrop').addEventListener('click', closeTransactionModal);
 
-  // Recurring toggle
-  el('transaction-recurring').addEventListener('change', function() {
+  el('transaction-recurring').addEventListener('change', function () {
     toggle('recurring-options', this.checked);
   });
 
-  // FAB menu options
-  el('fab-income').addEventListener('click', () => {
-    closeFabMenu();
-    openTransactionModal('income');
-  });
-  el('fab-expense').addEventListener('click', () => {
-    closeFabMenu();
-    openTransactionModal('expense');
-  });
-  el('fab-transfer').addEventListener('click', () => {
-    closeFabMenu();
-    openTransactionModal('transfer');
-  });
-  el('fab-paylater').addEventListener('click', () => {
-    closeFabMenu();
-    openTransactionModal('paylater');
-  });
+  // FAB options
+  el('fab-income').addEventListener('click',   () => { closeFabMenu(); openTransactionModal('income');   });
+  el('fab-expense').addEventListener('click',  () => { closeFabMenu(); openTransactionModal('expense');  });
+  el('fab-transfer').addEventListener('click', () => { closeFabMenu(); openTransactionModal('transfer'); });
+  el('fab-paylater').addEventListener('click', () => { closeFabMenu(); openTransactionModal('paylater'); });
 
-  // Quick action buttons
-  el('qa-expense').addEventListener('click', () => openTransactionModal('expense'));
-  el('qa-income').addEventListener('click',  () => openTransactionModal('income'));
-  el('qa-transfer').addEventListener('click',() => openTransactionModal('transfer'));
-  el('qa-paylater').addEventListener('click',() => openTransactionModal('paylater'));
+  // Quick actions
+  el('qa-expense').addEventListener('click',  () => openTransactionModal('expense'));
+  el('qa-income').addEventListener('click',   () => openTransactionModal('income'));
+  el('qa-transfer').addEventListener('click', () => openTransactionModal('transfer'));
+  el('qa-paylater').addEventListener('click', () => openTransactionModal('paylater'));
 
   // Pay Now modal
   el('paynow-save-btn').addEventListener('click', confirmPayNow);
@@ -685,20 +995,18 @@ function initTransactionEvents() {
 }
 
 // ============================================
-// ALL TRANSACTIONS PAGE FILTERS
+// TRANSACTION PAGE FILTERS
 // ============================================
 
 let txFilters = {
-  type:     'all',
-  accountId:'all',
-  period:   'month',
-  plFilter: 'all',
-  dateFrom: '',
-  dateTo:   ''
+  type:      'all',
+  accountId: 'all',
+  period:    'month',
+  dateFrom:  '',
+  dateTo:    ''
 };
 
 function initTransactionFilters() {
-  // Type chips
   qsa('#page-transactions .filter-chip[data-filter]').forEach(chip => {
     chip.addEventListener('click', () => {
       qsa('#page-transactions .filter-chip[data-filter]').forEach(c =>
@@ -710,20 +1018,17 @@ function initTransactionFilters() {
     });
   });
 
-  // Account filter
   el('filter-account').addEventListener('change', () => {
     txFilters.accountId = el('filter-account').value;
     renderAllTransactions();
   });
 
-  // Period filter
   el('filter-period').addEventListener('change', () => {
     txFilters.period = el('filter-period').value;
     toggle('custom-date-range', txFilters.period === 'custom');
     renderAllTransactions();
   });
 
-  // Custom date range
   el('apply-date-range').addEventListener('click', () => {
     txFilters.dateFrom = el('date-from').value;
     txFilters.dateTo   = el('date-to').value;
@@ -770,9 +1075,13 @@ async function renderPayLaterPage() {
   setText('pl-total', formatCurrency(total));
   setText('pl-count', pending.length);
 
+  // Remove stale bulk bar
+  el('bulk-pay-action-bar')?.remove();
+
   await renderTransactionList('paylater-list', {
     type:     'paylater',
-    plFilter: plFilter
+    plFilter: plFilter,
+    bulkMode: bulkModeActive
   });
 }
 
@@ -784,18 +1093,18 @@ async function updatePayLaterBanner() {
   const pending = await getPendingPayLater();
   const banner  = el('pay-later-banner');
 
-  if (pending.length === 0) {
-    hide(banner);
-    return;
-  }
+  if (pending.length === 0) { hide(banner); return; }
 
   const total = pending.reduce((s, tx) => s + tx.amount, 0);
-  setText('pay-later-count', `${pending.length} item${pending.length > 1 ? 's' : ''} · ${formatCurrency(total)}`);
+  setText(
+    'pay-later-count',
+    `${pending.length} item${pending.length > 1 ? 's' : ''} · ${formatCurrency(total)}`
+  );
   show(banner);
 }
 
 // ============================================
-// REFRESH ALL VIEWS
+// REFRESH ALL
 // ============================================
 
 async function refreshAll() {
