@@ -124,6 +124,34 @@ function bindSettingsEvents() {
       }
     );
   });
+   
+  // Hard refresh
+  el('hard-refresh-btn')?.addEventListener('click', () => {
+    showConfirm(
+      'Full Refresh',
+      'This will clear the cache and reload the app. Your data is safe.',
+      async () => {
+        // Unregister service worker
+        if ('serviceWorker' in navigator) {
+          const regs = await navigator.serviceWorker.getRegistrations();
+          for (const reg of regs) {
+            await reg.unregister();
+          }
+        }
+        // Clear all caches
+        if ('caches' in window) {
+          const keys = await caches.keys();
+          for (const key of keys) {
+            await caches.delete(key);
+          }
+        }
+        showToast('Cache cleared. Reloading...', 'default', 2000);
+        setTimeout(() => location.reload(true), 2000);
+      },
+      false
+    );
+  });
+   
 }
 
 // ============================================
