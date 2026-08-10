@@ -112,7 +112,13 @@ function dbClear(storeName) {
 
 function getAllAccounts() {
   return dbGetAll('accounts').then(a =>
-    a.sort((x, y) => x.createdAt - y.createdAt)
+    a.sort((x, y) => {
+      // Sort by order field first, then by createdAt
+      const orderA = x.order !== undefined ? x.order : 999;
+      const orderB = y.order !== undefined ? y.order : 999;
+      if (orderA !== orderB) return orderA - orderB;
+      return (x.createdAt || 0) - (y.createdAt || 0);
+    })
   );
 }
 
@@ -415,15 +421,39 @@ async function deleteRecurring(id) {
 // ============================================
 
 async function seedDefaultAccounts() {
-  const existing = await getAllAccounts();
-  if (existing.length > 0) return;
+  // Check local first
+  const localAccounts = await getAllAccounts();
+  if (localAccounts.length > 0) return;
 
+  // If sync is ready, check cloud too
+  // This prevents duplicates after signing in on new device
+  if (typeof _syncReady !== 'undefined' && _syncReady &&
+      typeof _currentUser !== 'undefined' && _currentUser &&
+      typeof _firestore !== 'undefined' && _firestore) {
+    try {
+      const uid = _currentUser.uid;
+      const snapshot = await _firestore
+        .collection('users').doc(uid)
+        .collection('accounts').get();
+      if (!snapshot.empty) {
+        // Cloud has accounts — pull them instead of seeding
+        for (const docSnap of snapshot.docs) {
+          await dbPut('accounts', docSnap.data());
+        }
+        return;
+      }
+    } catch (err) {
+      console.warn('Cloud check during seed failed:', err);
+    }
+  }
+
+  // No accounts locally or in cloud — seed defaults
   const defaults = [
-    { name: 'MTN MoMo 1', type: 'momo', bankName: '', color: '#F5C518' },
-    { name: 'MTN MoMo 2', type: 'momo', bankName: '', color: '#F97316' },
-    { name: 'CalBank',    type: 'bank', bankName: 'CalBank', color: '#3B82F6' },
-    { name: 'GTBank',     type: 'bank', bankName: 'GTBank',  color: '#22C55E' },
-    { name: 'Cash',       type: 'cash', bankName: '', color: '#A855F7' }
+    { name: 'MTN MoMo 1', type: 'momo', bankName: '', color: '#F5C518', order: 0 },
+    { name: 'MTN MoMo 2', type: 'momo', bankName: '', color: '#F97316', order: 1 },
+    { name: 'CalBank',    type: 'bank', bankName: 'CalBank', color: '#3B82F6', order: 2 },
+    { name: 'GTBank',     type: 'bank', bankName: 'GTBank',  color: '#22C55E', order: 3 },
+    { name: 'Cash',       type: 'cash', bankName: '', color: '#A855F7', order: 4 }
   ];
 
   for (let i = 0; i < defaults.length; i++) {
