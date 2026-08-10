@@ -4,11 +4,9 @@
 
 'use strict';
 
-// Chart instances (so we can destroy before re-render)
 let chartCategory = null;
 let chartMonthly  = null;
-
-let statsPeriod = 'month';
+let statsPeriod   = 'month';
 
 // ============================================
 // MAIN STATS RENDER
@@ -18,41 +16,33 @@ async function renderStats() {
   try {
     const transactions = await getAllTransactions();
     const accounts     = await getAllAccountsWithBalances();
-    const now          = new Date();
 
-    // Filter by selected period
     let filtered = filterByPeriod(transactions, statsPeriod);
 
-    // Exclude pending pay later from expense totals
-    const expenses = filtered.filter(tx =>
-      tx.type === 'expense' ||
-      (tx.type === 'paylater' && tx.status === 'paid')
-    );
+    const expenses  = filtered.filter(tx => tx.type === 'expense');
     const incomes   = filtered.filter(tx => tx.type === 'income');
+    const transfers = filtered.filter(tx => tx.type === 'transfer');
     const payLaters = filtered.filter(tx =>
       tx.type === 'paylater' && tx.status === 'pending'
     );
 
-    const totalIncome  = incomes.reduce((s, tx)   => s + tx.amount, 0);
-    const totalExpense = expenses.reduce((s, tx)  => s + tx.amount, 0);
-    const totalPL      = payLaters.reduce((s, tx) => s + tx.amount, 0);
-    const netSavings   = totalIncome - totalExpense;
+    const totalIncome   = incomes.reduce((s, tx)   => s + tx.amount, 0);
+    const totalExpense  = expenses.reduce((s, tx)  => s + tx.amount, 0);
+    const totalTransfer = transfers.reduce((s, tx) => s + tx.amount, 0);
+    const totalPL       = payLaters.reduce((s, tx) => s + tx.amount, 0);
+    const netSavings    = totalIncome - totalExpense;
 
-    // Summary cards
     setText('stat-income',  formatCurrency(totalIncome));
     setText('stat-expense', formatCurrency(totalExpense));
     setText('stat-savings', formatCurrency(netSavings));
     setText('stat-paylater',formatCurrency(totalPL));
 
-    // Color savings
     const savingsEl = el('stat-savings');
     if (savingsEl) {
       savingsEl.style.color = netSavings >= 0
-        ? 'var(--income)'
-        : 'var(--expense)';
+        ? 'var(--income)' : 'var(--expense)';
     }
 
-    // Charts
     renderCategoryChart(expenses);
     renderMonthlyChart(transactions);
     renderAccountBreakdown(accounts);
@@ -72,7 +62,6 @@ function renderCategoryChart(expenses) {
   const legend = el('chart-category-legend');
   if (!canvas || !legend) return;
 
-  // Group by category
   const catTotals = {};
   expenses.forEach(tx => {
     const key = tx.category || 'other';
@@ -81,7 +70,7 @@ function renderCategoryChart(expenses) {
 
   const entries = Object.entries(catTotals)
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 8); // top 8 categories
+    .slice(0, 8);
 
   if (entries.length === 0) {
     canvas.style.display = 'none';
@@ -102,11 +91,7 @@ function renderCategoryChart(expenses) {
   const data   = entries.map(([, amt]) => amt);
   const colors = entries.map((_, i) => getChartColor(i));
 
-  // Destroy old chart
-  if (chartCategory) {
-    chartCategory.destroy();
-    chartCategory = null;
-  }
+  if (chartCategory) { chartCategory.destroy(); chartCategory = null; }
 
   const ctx = canvas.getContext('2d');
   chartCategory = new Chart(ctx, {
@@ -128,9 +113,7 @@ function renderCategoryChart(expenses) {
       plugins: {
         legend: { display: false },
         tooltip: {
-          callbacks: {
-            label: ctx => ` ${formatCurrency(ctx.parsed)}`
-          },
+          callbacks: { label: ctx => ` ${formatCurrency(ctx.parsed)}` },
           backgroundColor: '#1A1A26',
           titleColor:      '#FFFFFF',
           bodyColor:       '#9999BB',
@@ -143,20 +126,16 @@ function renderCategoryChart(expenses) {
     }
   });
 
-  // Legend
   const total = data.reduce((s, v) => s + v, 0);
   legend.innerHTML = entries.map(([id, amt], i) => {
-    const cat  = getCategoryById(id, 'expense');
-    const pct  = total ? ((amt / total) * 100).toFixed(1) : 0;
+    const cat = getCategoryById(id, 'expense');
+    const pct = total ? ((amt / total) * 100).toFixed(1) : 0;
     return `
       <div class="legend-item">
         <div class="legend-dot" style="background:${colors[i]}"></div>
         <span>${cat.icon} ${cat.label}</span>
-        <span style="margin-left:auto;font-weight:600">
-          ${pct}%
-        </span>
-      </div>
-    `;
+        <span style="margin-left:auto;font-weight:600">${pct}%</span>
+      </div>`;
   }).join('');
 }
 
@@ -171,15 +150,15 @@ function renderMonthlyChart(transactions) {
   const now    = new Date();
   const months = [];
 
-  // Build last 6 months
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     months.push({
-      label:   d.toLocaleDateString('en-GH', { month: 'short' }),
-      year:    d.getFullYear(),
-      month:   d.getMonth(),
-      income:  0,
-      expense: 0
+      label:    d.toLocaleDateString('en-GH', { month: 'short' }),
+      year:     d.getFullYear(),
+      month:    d.getMonth(),
+      income:   0,
+      expense:  0,
+      transfer: 0
     });
   }
 
@@ -189,21 +168,15 @@ function renderMonthlyChart(transactions) {
       mo.year === d.getFullYear() && mo.month === d.getMonth()
     );
     if (!m) return;
-    if (tx.type === 'income')  m.income  += tx.amount;
-    if (tx.type === 'expense') m.expense += tx.amount;
-    if (tx.type === 'paylater' && tx.status === 'paid') {
-      const pd = new Date(tx.paidAt || tx.date);
-      const pm = months.find(mo =>
-        mo.year === pd.getFullYear() && mo.month === pd.getMonth()
-      );
-      if (pm) pm.expense += tx.amount;
-    }
+
+    if (tx.type === 'income')   m.income   += tx.amount;
+    if (tx.type === 'expense')  m.expense  += tx.amount;
+    if (tx.type === 'transfer') m.transfer += tx.amount;
+
+    // Paid paylater → already counted as expense
   });
 
-  if (chartMonthly) {
-    chartMonthly.destroy();
-    chartMonthly = null;
-  }
+  if (chartMonthly) { chartMonthly.destroy(); chartMonthly = null; }
 
   const ctx = canvas.getContext('2d');
   chartMonthly = new Chart(ctx, {
@@ -214,16 +187,24 @@ function renderMonthlyChart(transactions) {
         {
           label:           'Income',
           data:            months.map(m => m.income),
-          backgroundColor: 'rgba(34, 197, 94, 0.7)',
-          borderColor:     'rgba(34, 197, 94, 1)',
+          backgroundColor: 'rgba(34,197,94,0.7)',
+          borderColor:     'rgba(34,197,94,1)',
           borderWidth:     1,
           borderRadius:    4
         },
         {
           label:           'Expenses',
           data:            months.map(m => m.expense),
-          backgroundColor: 'rgba(239, 68, 68, 0.7)',
-          borderColor:     'rgba(239, 68, 68, 1)',
+          backgroundColor: 'rgba(239,68,68,0.7)',
+          borderColor:     'rgba(239,68,68,1)',
+          borderWidth:     1,
+          borderRadius:    4
+        },
+        {
+          label:           'Transfers',
+          data:            months.map(m => m.transfer),
+          backgroundColor: 'rgba(59,130,246,0.7)',
+          borderColor:     'rgba(59,130,246,1)',
           borderWidth:     1,
           borderRadius:    4
         }
@@ -234,19 +215,17 @@ function renderMonthlyChart(transactions) {
       maintainAspectRatio: true,
       plugins: {
         legend: {
-          display:    true,
-          position:   'top',
+          display:  true,
+          position: 'top',
           labels: {
-            color:     '#9999BB',
-            font:      { size: 11 },
-            boxWidth:  12,
-            padding:   16
+            color:    '#9999BB',
+            font:     { size: 11 },
+            boxWidth: 12,
+            padding:  16
           }
         },
         tooltip: {
-          callbacks: {
-            label: ctx => ` ${formatCurrency(ctx.parsed.y)}`
-          },
+          callbacks: { label: ctx => ` ${formatCurrency(ctx.parsed.y)}` },
           backgroundColor: '#1A1A26',
           titleColor:      '#FFFFFF',
           bodyColor:       '#9999BB',
@@ -267,8 +246,7 @@ function renderMonthlyChart(transactions) {
             color:    '#9999BB',
             font:     { size: 11 },
             callback: val => 'GH₵' + (val >= 1000
-              ? (val/1000).toFixed(1) + 'k'
-              : val)
+              ? (val/1000).toFixed(1) + 'k' : val)
           },
           beginAtZero: true
         }
@@ -285,6 +263,8 @@ function renderAccountBreakdown(accounts) {
   const container = el('account-breakdown');
   if (!container) return;
 
+  const savingsIds = getSavingsAccountIds();
+
   if (accounts.length === 0) {
     container.innerHTML = `
       <div style="color:var(--text3);font-size:13px">
@@ -296,6 +276,7 @@ function renderAccountBreakdown(accounts) {
   const total = accounts.reduce((s, a) => s + Math.max(a.balance, 0), 0);
 
   container.innerHTML = accounts.map(acc => {
+    const isSavings = savingsIds.includes(acc.id);
     const pct = total > 0
       ? ((Math.max(acc.balance, 0) / total) * 100).toFixed(1)
       : 0;
@@ -304,9 +285,12 @@ function renderAccountBreakdown(accounts) {
         <div class="ab-color" style="background:${acc.color}"></div>
         <div class="ab-name">
           ${getAccountIcon(acc.type)} ${escapeHTML(acc.name)}
+          ${isSavings
+            ? '<span style="font-size:10px;color:var(--savings)"> · Savings</span>'
+            : ''}
         </div>
         <div class="ab-balance" style="color:${acc.color}">
-          ${maskBalance(acc.balance)}
+          ${maskBalance(acc.balance, `acc_${acc.id}`)}
         </div>
       </div>
       <div style="height:4px;background:var(--bg3);
@@ -359,8 +343,7 @@ function renderTopCategories(expenses) {
         <div class="top-cat-bar">
           <div class="top-cat-fill" style="width:${pct}%"></div>
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 }
 
