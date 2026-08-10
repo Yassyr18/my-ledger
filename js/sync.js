@@ -140,11 +140,27 @@ async function signInWithGoogle() {
 
 async function onSignedIn(user) {
   hideSyncLoginScreen();
+
+  // STEP 1: Pull settings from cloud FIRST
   await pullSettings();
+
+  // STEP 2: Pull all data from cloud
   await pullFromCloud();
+
+  // STEP 3: Check if user has ANY accounts
+  // If not (brand new user), create defaults
+  const localAccounts = await getAllAccounts();
+  if (localAccounts.length === 0) {
+    await createDefaultAccounts();
+  }
+
+  // STEP 4: Push local data to cloud
   await pushToCloud();
-  await syncSettings();
+
+  // STEP 5: Start listening for changes
   startRealtimeListeners();
+  startPreferencesListener();
+
   setSyncStatus('ok');
   setSetting('lastSynced', new Date().toISOString());
   updateLastSyncedLabel();
@@ -153,6 +169,26 @@ async function onSignedIn(user) {
     await refreshAll();
   } else {
     await launchMainApp();
+  }
+}
+
+async function createDefaultAccounts() {
+  const defaults = [
+    { name: 'MTN MoMo 1', type: 'momo', bankName: '', color: '#F5C518', order: 0 },
+    { name: 'MTN MoMo 2', type: 'momo', bankName: '', color: '#F97316', order: 1 },
+    { name: 'CalBank',    type: 'bank', bankName: 'CalBank', color: '#3B82F6', order: 2 },
+    { name: 'GTBank',     type: 'bank', bankName: 'GTBank',  color: '#22C55E', order: 3 },
+    { name: 'Cash',       type: 'cash', bankName: '', color: '#A855F7', order: 4 }
+  ];
+
+  for (let i = 0; i < defaults.length; i++) {
+    await saveAccount({
+      id:              generateId(),
+      ...defaults[i],
+      startingBalance: 0,
+      notes:           '',
+      createdAt:       Date.now() + i
+    });
   }
 }
 
@@ -306,6 +342,68 @@ function startRealtimeListeners() {
   });
 }
 
+function startPreferencesListener() {
+  if (!_syncReady || !_currentUser || !_firestore) return;
+
+  const uid = _currentUser.uid;
+
+  const unsub = _firestore
+    .collection('users').doc(uid)
+    .collection('preferences').doc('user_prefs')
+    .onSnapshot(async (doc) => {
+      if (!doc.exists) return;
+      const prefs = doc.data();
+
+      // Apply cloud settings
+      if (prefs.settings) {
+        const cloud = prefs.settings;
+        cloud.lastSynced  = getSetting('lastSynced', null);
+        cloud.syncSkipped = getSetting('syncSkipped', false);
+        saveSettings(cloud);
+      }
+      if (prefs.expenseCategories) {
+        localStorage.setItem('ml_expense_cats',
+          JSON.stringify(prefs.expenseCategories));
+      }
+      if (prefs.incomeCategories) {
+        localStorage.setItem('ml_income_cats',
+          JSON.stringify(prefs.incomeCategories));
+      }
+      if (prefs.vendorPresets) {
+        localStorage.setItem('ml_vendors',
+          JSON.stringify(prefs.vendorPresets));
+      }
+      if (prefs.savingsAccountIds) {
+        localStorage.setItem('ml_savings_accounts',
+          JSON.stringify(prefs.savingsAccountIds));
+      }
+      if (prefs.excludedAccountIds) {
+        localStorage.setItem('ml_excluded_accounts',
+          JSON.stringify(prefs.excludedAccountIds));
+      }
+      if (prefs.categoryUsage) {
+        localStorage.setItem('ml_cat_usage',
+          JSON.stringify(prefs.categoryUsage));
+      }
+      if (prefs.balanceVisibility) {
+        localStorage.setItem('ml_balance_vis',
+          JSON.stringify(prefs.balanceVisibility));
+      }
+
+      // Refresh UI
+      if (typeof appInitialized !== 'undefined' && appInitialized) {
+        await renderDashboard();
+        await renderAccountCards();
+        loadSettingsIntoPage();
+      }
+
+    }, (err) => {
+      console.error('Preferences listener error:', err);
+    });
+
+  _unsubscribers.push(unsub);
+}
+
 function stopRealtimeListeners() {
   _unsubscribers.forEach(u => u());
   _unsubscribers = [];
@@ -417,24 +515,23 @@ async function syncSettings() {
   try {
     const uid = _currentUser.uid;
 
-    // Gather all synced preferences
     const prefs = {
-      id:                'user_prefs',
-      settings:          getSettings(),
-      expenseCategories: getExpenseCategories(),
-      incomeCategories:  getIncomeCategories(),
-      vendorPresets:     getVendorPresets(),
-      savingsAccountIds: getSavingsAccountIds(),
-      excludedAccountIds:getExcludedAccountIds(),
-      categoryUsage:     getCategoryUsage(),
-      balanceVisibility: getBalanceVisibility(),
-      updatedAt:         Date.now()
+      id:                 'user_prefs',
+      settings:           getSettings(),
+      expenseCategories:  getExpenseCategories(),
+      incomeCategories:   getIncomeCategories(),
+      vendorPresets:      getVendorPresets(),
+      savingsAccountIds:  getSavingsAccountIds(),
+      excludedAccountIds: getExcludedAccountIds(),
+      categoryUsage:      getCategoryUsage(),
+      balanceVisibility:  getBalanceVisibility(),
+      updatedAt:          Date.now()
     };
 
     await _firestore
       .collection('users').doc(uid)
       .collection('preferences').doc('user_prefs')
-      .set(prefs, { merge: true });
+      .set(prefs);  // Full overwrite, not merge
 
   } catch (err) {
     console.error('Sync settings error:', err);
@@ -454,33 +551,34 @@ async function pullSettings() {
     if (!doc.exists) return;
     const prefs = doc.data();
 
-    // Only apply if cloud is newer
-    const localUpdated = getSetting('prefsUpdatedAt', 0);
-    if ((prefs.updatedAt || 0) <= localUpdated) return;
-
-    // Apply cloud settings
+    // Apply ALL cloud settings — cloud is the source of truth
     if (prefs.settings) {
       const cloudSettings = prefs.settings;
-      // Preserve local-only settings
-      cloudSettings.lastSynced   = getSetting('lastSynced', null);
-      cloudSettings.syncSkipped  = getSetting('syncSkipped', false);
+      // Keep these local-only (don't overwrite)
+      cloudSettings.lastSynced  = getSetting('lastSynced', null);
+      cloudSettings.syncSkipped = getSetting('syncSkipped', false);
       saveSettings(cloudSettings);
     }
 
     if (prefs.expenseCategories) {
-      saveExpenseCategories(prefs.expenseCategories);
+      localStorage.setItem('ml_expense_cats',
+        JSON.stringify(prefs.expenseCategories));
     }
     if (prefs.incomeCategories) {
-      saveIncomeCategories(prefs.incomeCategories);
+      localStorage.setItem('ml_income_cats',
+        JSON.stringify(prefs.incomeCategories));
     }
     if (prefs.vendorPresets) {
-      saveVendorPresets(prefs.vendorPresets);
+      localStorage.setItem('ml_vendors',
+        JSON.stringify(prefs.vendorPresets));
     }
     if (prefs.savingsAccountIds) {
-      setSavingsAccountIds(prefs.savingsAccountIds);
+      localStorage.setItem('ml_savings_accounts',
+        JSON.stringify(prefs.savingsAccountIds));
     }
     if (prefs.excludedAccountIds) {
-      setExcludedAccountIds(prefs.excludedAccountIds);
+      localStorage.setItem('ml_excluded_accounts',
+        JSON.stringify(prefs.excludedAccountIds));
     }
     if (prefs.categoryUsage) {
       localStorage.setItem('ml_cat_usage',
@@ -490,8 +588,6 @@ async function pullSettings() {
       localStorage.setItem('ml_balance_vis',
         JSON.stringify(prefs.balanceVisibility));
     }
-
-    setSetting('prefsUpdatedAt', prefs.updatedAt);
 
   } catch (err) {
     console.error('Pull settings error:', err);
