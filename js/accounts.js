@@ -12,9 +12,14 @@ async function renderAccountCards() {
   const container = el('accounts-scroll');
   if (!container) return;
 
-  const accounts = await getAllAccountsWithBalances();
+  const accounts   = await getAllAccountsWithBalances();
+  const savingsIds = getSavingsAccountIds();
+  const excluded   = getExcludedAccountIds();
 
-  if (accounts.length === 0) {
+  // Show only non-savings accounts in the main scroll
+  const mainAccounts = accounts.filter(a => !savingsIds.includes(a.id));
+
+  if (mainAccounts.length === 0) {
     container.innerHTML = `
       <div class="account-card-small" style="opacity:0.5">
         <div class="acc-card-type">No accounts</div>
@@ -24,28 +29,124 @@ async function renderAccountCards() {
     return;
   }
 
-  container.innerHTML = accounts.map(acc => `
-    <div class="account-card-small" 
-         data-id="${acc.id}"
-         style="--acc-color:${acc.color}">
-      <div class="account-card-small-bar" 
-           style="position:absolute;top:0;left:0;right:0;height:3px;
-                  background:${acc.color};border-radius:10px 10px 0 0"></div>
-      <div class="acc-card-type">
-        ${getAccountIcon(acc.type)} ${getAccountTypeLabel(acc.type)}
+  container.innerHTML = mainAccounts.map(acc => {
+    const visKey    = `acc_${acc.id}`;
+    const isVisible = isBalanceVisible(visKey);
+    const balText   = isVisible
+      ? formatCurrency(acc.balance)
+      : '••••••';
+    const isExcl    = excluded.includes(acc.id);
+
+    return `
+      <div class="account-card-small"
+           data-id="${acc.id}">
+        <div style="position:absolute;top:0;left:0;right:0;height:3px;
+                    background:${acc.color};
+                    border-radius:10px 10px 0 0"></div>
+        <div class="acc-card-type">
+          ${getAccountIcon(acc.type)} ${getAccountTypeLabel(acc.type)}
+          ${isExcl ? '<span style="font-size:9px;color:var(--text3)"> · excluded</span>' : ''}
+        </div>
+        <div class="acc-card-name">${escapeHTML(acc.name)}</div>
+        <div class="acc-card-balance-row">
+          <div class="acc-card-balance" style="color:${acc.color}">
+            ${balText}
+          </div>
+          <button class="acc-card-eye"
+                  data-vis-key="${visKey}"
+                  data-visible="${isVisible}"
+                  title="${isVisible ? 'Hide' : 'Show'} balance">
+            ${eyeIcon(isVisible)}
+          </button>
+        </div>
       </div>
-      <div class="acc-card-name">${escapeHTML(acc.name)}</div>
-      <div class="acc-card-balance" style="color:${acc.color}">
-        ${maskBalance(acc.balance)}
+    `;
+  }).join('');
+
+  // Eye toggle on cards
+  qsa('.acc-card-eye', container).forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key     = btn.dataset.visKey;
+      const current = btn.dataset.visible === 'true';
+      const next    = !current;
+      setBalanceVisibility(key, next);
+      btn.dataset.visible  = next;
+      btn.title            = next ? 'Hide balance' : 'Show balance';
+      btn.innerHTML        = eyeIcon(next);
+      const balEl = btn.closest('.account-card-small')
+        ?.querySelector('.acc-card-balance');
+      if (balEl) {
+        const acc = mainAccounts.find(
+          a => `acc_${a.id}` === key
+        );
+        if (acc) balEl.textContent = next
+          ? formatCurrency(acc.balance)
+          : '••••••';
+      }
+      haptic('light');
+    });
+  });
+
+  // Tap card → go to accounts page
+  qsa('.account-card-small', container).forEach(card => {
+    card.addEventListener('click', () => navigateTo('accounts'));
+  });
+
+  // Render savings card separately
+  renderSavingsCard(accounts, savingsIds);
+}
+
+// ============================================
+// SAVINGS CARD (home page)
+// ============================================
+
+async function renderSavingsCard(accounts, savingsIds) {
+  const savingsContainer = el('savings-card-container');
+  if (!savingsContainer) return;
+
+  const savingsAccounts = accounts.filter(a => savingsIds.includes(a.id));
+
+  if (savingsAccounts.length === 0) {
+    hide(savingsContainer);
+    return;
+  }
+
+  const totalSavings  = savingsAccounts.reduce((s, a) => s + a.balance, 0);
+  const visKey        = 'savings_total';
+  const isVisible     = isBalanceVisible(visKey);
+  const balText       = isVisible ? formatCurrency(totalSavings) : '••••••';
+
+  savingsContainer.innerHTML = `
+    <div class="savings-card">
+      <div class="savings-card-icon">🏦</div>
+      <div class="savings-card-info">
+        <div class="savings-card-label">Savings</div>
+        <div class="savings-balance-row">
+          <div class="savings-card-balance">${balText}</div>
+          <button class="eye-btn savings-eye-btn"
+                  data-vis-key="${visKey}"
+                  data-visible="${isVisible}"
+                  title="${isVisible ? 'Hide' : 'Show'} savings">
+            ${eyeIcon(isVisible)}
+          </button>
+        </div>
+        <div style="font-size:11px;color:var(--savings);margin-top:2px">
+          ${savingsAccounts.length} account${savingsAccounts.length > 1 ? 's' : ''}
+        </div>
       </div>
     </div>
-  `).join('');
+  `;
 
-  // tap to go to accounts page
-  qsa('.account-card-small', container).forEach(card => {
-    card.addEventListener('click', () => {
-      navigateTo('accounts');
-    });
+  show(savingsContainer);
+
+  qs('.savings-eye-btn', savingsContainer)?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const current = isBalanceVisible(visKey);
+    const next    = !current;
+    setBalanceVisibility(visKey, next);
+    renderSavingsCard(accounts, savingsIds);
+    haptic('light');
   });
 }
 
@@ -57,11 +158,23 @@ async function renderAccountsList() {
   const container = el('accounts-list');
   if (!container) return;
 
-  const accounts = await getAllAccountsWithBalances();
+  const accounts   = await getAllAccountsWithBalances();
+  const savingsIds = getSavingsAccountIds();
+  const excluded   = getExcludedAccountIds();
 
-  // update total
-  const total = accounts.reduce((s, a) => s + a.balance, 0);
-  setText('accounts-total-balance', maskBalance(total));
+  // Total balance (excluding savings + excluded)
+  const total = accounts
+    .filter(a => !savingsIds.includes(a.id) && !excluded.includes(a.id))
+    .reduce((s, a) => s + a.balance, 0);
+
+  // Total savings
+  const savingsTotal = accounts
+    .filter(a => savingsIds.includes(a.id))
+    .reduce((s, a) => s + a.balance, 0);
+
+  // Update total bar
+  const totalEl = el('accounts-total-balance');
+  if (totalEl) totalEl.textContent = maskBalance(total, 'acc_total');
 
   if (accounts.length === 0) {
     container.innerHTML = `
@@ -73,53 +186,79 @@ async function renderAccountsList() {
     return;
   }
 
-  // get transaction stats per account
   const allTx = await getAllTransactions();
 
   container.innerHTML = '';
 
-  for (const acc of accounts) {
+  // Render regular accounts first, then savings
+  const sortedAccounts = [
+    ...accounts.filter(a => !savingsIds.includes(a.id)),
+    ...accounts.filter(a =>  savingsIds.includes(a.id))
+  ];
+
+  for (const acc of sortedAccounts) {
+    const isSavings = savingsIds.includes(acc.id);
+    const isExcl    = excluded.includes(acc.id);
+    const visKey    = `acc_${acc.id}`;
+    const isVisible = isBalanceVisible(visKey);
+
     const accTx = allTx.filter(tx =>
-      tx.accountId === acc.id ||
+      tx.accountId     === acc.id ||
       tx.fromAccountId === acc.id ||
-      tx.toAccountId === acc.id
+      tx.toAccountId   === acc.id
     );
 
     const totalIn = accTx
-      .filter(tx => tx.type === 'income' && tx.accountId === acc.id)
+      .filter(tx =>
+        (tx.type === 'income'   && tx.accountId === acc.id) ||
+        (tx.type === 'transfer' && tx.toAccountId === acc.id)
+      )
       .reduce((s, tx) => s + tx.amount, 0);
 
     const totalOut = accTx
       .filter(tx =>
-        (tx.type === 'expense' && tx.accountId === acc.id) ||
+        (tx.type === 'expense'  && tx.accountId === acc.id) ||
         (tx.type === 'transfer' && tx.fromAccountId === acc.id)
       )
       .reduce((s, tx) => s + tx.amount, 0);
 
     const card = document.createElement('div');
-    card.className = 'account-card-full';
+    card.className  = 'account-card-full';
     card.dataset.id = acc.id;
-    card.style.cssText = `--acc-color:${acc.color}`;
-    card.innerHTML = `
+    card.innerHTML  = `
       <div style="position:absolute;top:0;left:0;bottom:0;width:4px;
-                  background:${acc.color};border-radius:16px 0 0 16px"></div>
+                  background:${acc.color};
+                  border-radius:16px 0 0 16px"></div>
       <div class="acf-header">
         <div class="acf-info">
-          <div class="acf-name">${escapeHTML(acc.name)}</div>
+          <div class="acf-name">
+            ${escapeHTML(acc.name)}
+            ${isSavings ? '<span class="savings-badge">SAVINGS</span>' : ''}
+            ${isExcl && !isSavings
+              ? '<span class="excluded-badge">EXCLUDED</span>' : ''}
+          </div>
           <div class="acf-type">
             ${getAccountIcon(acc.type)} ${getAccountTypeLabel(acc.type)}
             ${acc.bankName ? ' · ' + escapeHTML(acc.bankName) : ''}
           </div>
         </div>
         <div class="acf-actions">
-          <button class="acf-action-btn edit-acc-btn" 
-                  data-id="${acc.id}" title="Edit">✏️</button>
-          <button class="acf-action-btn delete-acc-btn" 
-                  data-id="${acc.id}" title="Delete">🗑️</button>
+          <button class="acf-action-btn edit-acc-btn"
+                  data-id="${acc.id}">✏️</button>
+          <button class="acf-action-btn delete-acc-btn"
+                  data-id="${acc.id}">🗑️</button>
         </div>
       </div>
-      <div class="acf-balance" style="color:${acc.color}">
-        ${maskBalance(acc.balance)}
+      <div class="acf-balance-row">
+        <div class="acf-balance"
+             style="color:${acc.color}">
+          ${isVisible ? maskBalance(acc.balance, visKey) : '••••••'}
+        </div>
+        <button class="eye-btn acf-eye-btn"
+                data-vis-key="${visKey}"
+                data-visible="${isVisible}">
+          ${eyeIcon(isVisible)}
+        </button>
       </div>
       <div class="acf-stats">
         <div class="acf-stat">
@@ -144,8 +283,33 @@ async function renderAccountsList() {
     container.appendChild(card);
   }
 
+  // Eye toggle on full cards
+  qsa('.acf-eye-btn', container).forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const key     = btn.dataset.visKey;
+      const current = btn.dataset.visible === 'true';
+      const next    = !current;
+      setBalanceVisibility(key, next);
+      btn.dataset.visible = next;
+      btn.innerHTML       = eyeIcon(next);
+      const balEl = btn.closest('.account-card-full')
+        ?.querySelector('.acf-balance');
+      if (balEl) {
+        const accId = btn.closest('.account-card-full')?.dataset.id;
+        const acc   = accounts.find(a => a.id === accId);
+        if (acc) {
+          balEl.textContent = next
+            ? formatCurrency(acc.balance)
+            : '••••••';
+        }
+      }
+      haptic('light');
+    });
+  });
+
   // Edit buttons
-  qsa('.edit-acc-btn').forEach(btn => {
+  qsa('.edit-acc-btn', container).forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openAccountModal(btn.dataset.id);
@@ -153,7 +317,7 @@ async function renderAccountsList() {
   });
 
   // Delete buttons
-  qsa('.delete-acc-btn').forEach(btn => {
+  qsa('.delete-acc-btn', container).forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       confirmDeleteAccount(btn.dataset.id);
@@ -162,34 +326,54 @@ async function renderAccountsList() {
 }
 
 // ============================================
+// EYE ICON SVG
+// ============================================
+
+function eyeIcon(visible) {
+  if (visible) {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>`;
+  }
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>`;
+}
+
+// ============================================
 // ACCOUNT MODAL
 // ============================================
 
 async function openAccountModal(accountId = null) {
-  const modal     = el('account-modal');
-  const titleEl   = el('account-modal-title');
-  const idInput   = el('account-id');
-  const nameInput = el('account-name');
-  const typeSelect = el('account-type');
-  const bankSelect = el('account-bank');
-  const balInput  = el('account-balance');
-  const notesInput = el('account-notes');
-  const bankGroup = el('bank-name-group');
+  const modal       = el('account-modal');
+  const titleEl     = el('account-modal-title');
+  const idInput     = el('account-id');
+  const nameInput   = el('account-name');
+  const typeSelect  = el('account-type');
+  const bankSelect  = el('account-bank');
+  const balInput    = el('account-balance');
+  const notesInput  = el('account-notes');
+  const bankGroup   = el('bank-name-group');
+  const savingsToggle = el('account-is-savings');
+  const excludeToggle = el('account-is-excluded');
 
-  // Reset form
+  // Reset
   idInput.value    = '';
   nameInput.value  = '';
   typeSelect.value = 'momo';
   bankSelect.value = '';
   balInput.value   = '';
   notesInput.value = '';
+  if (savingsToggle) savingsToggle.checked = false;
+  if (excludeToggle) excludeToggle.checked = false;
 
-  // Color picker reset
   qsa('.color-option').forEach((opt, i) => {
     opt.classList.toggle('active', i === 0);
   });
 
-  // Show/hide bank name based on type
   const updateBankVisibility = () => {
     toggle(bankGroup, typeSelect.value === 'bank');
   };
@@ -209,7 +393,11 @@ async function openAccountModal(accountId = null) {
       notesInput.value = acc.notes || '';
       updateBankVisibility();
 
-      // Set color
+      const savingsIds = getSavingsAccountIds();
+      const excluded   = getExcludedAccountIds();
+      if (savingsToggle) savingsToggle.checked = savingsIds.includes(acc.id);
+      if (excludeToggle) excludeToggle.checked = excluded.includes(acc.id);
+
       qsa('.color-option').forEach(opt => {
         opt.classList.toggle('active', opt.dataset.color === acc.color);
       });
@@ -234,6 +422,8 @@ async function saveAccountFromModal() {
   const balance = parseAmount(el('account-balance').value);
   const notes   = el('account-notes').value.trim();
   const color   = qs('.color-option.active')?.dataset.color || '#F5C518';
+  const isSavingsChecked = el('account-is-savings')?.checked || false;
+  const isExcluded       = el('account-is-excluded')?.checked || false;
 
   if (!name) {
     showToast('Please enter an account name', 'error');
@@ -253,17 +443,34 @@ async function saveAccountFromModal() {
   };
 
   if (id) {
-    // keep original createdAt
     const existing = await getAccount(id);
     if (existing) account.createdAt = existing.createdAt;
   }
 
   await saveAccount(account);
+
+  // Handle savings designation
+  const savingsIds = getSavingsAccountIds();
+  if (isSavingsChecked && !savingsIds.includes(account.id)) {
+    savingsIds.push(account.id);
+    setSavingsAccountIds(savingsIds);
+  } else if (!isSavingsChecked && savingsIds.includes(account.id)) {
+    setSavingsAccountIds(savingsIds.filter(i => i !== account.id));
+  }
+
+  // Handle excluded designation
+  const excluded = getExcludedAccountIds();
+  if (isExcluded && !excluded.includes(account.id)) {
+    excluded.push(account.id);
+    setExcludedAccountIds(excluded);
+  } else if (!isExcluded && excluded.includes(account.id)) {
+    setExcludedAccountIds(excluded.filter(i => i !== account.id));
+  }
+
   closeAccountModal();
   showToast(id ? 'Account updated ✓' : 'Account added ✓', 'success');
   haptic('medium');
 
-  // Refresh
   await renderAccountsList();
   await renderAccountCards();
   await renderDashboard();
@@ -275,6 +482,13 @@ function confirmDeleteAccount(accountId) {
     'Delete Account',
     'This will delete the account. Your transactions will remain but won\'t be linked to it.',
     async () => {
+      // Remove from savings/excluded lists too
+      setSavingsAccountIds(
+        getSavingsAccountIds().filter(i => i !== accountId)
+      );
+      setExcludedAccountIds(
+        getExcludedAccountIds().filter(i => i !== accountId)
+      );
       await deleteAccount(accountId);
       showToast('Account deleted', 'default');
       await renderAccountsList();
@@ -307,19 +521,15 @@ async function populateAccountSelects() {
     const sel = el(selectId);
     if (!sel) return;
 
-    const hasAll = ['filter-account'].includes(selectId);
-    const hasNone = ['goal-account', 'default-expense-account', 'default-income-account'].includes(selectId);
+    const hasAll  = ['filter-account'].includes(selectId);
+    const hasNone = ['goal-account','default-expense-account',
+                     'default-income-account'].includes(selectId);
 
     const currentVal = sel.value;
+    sel.innerHTML    = '';
 
-    sel.innerHTML = '';
-
-    if (hasAll) {
-      sel.innerHTML += `<option value="all">All Accounts</option>`;
-    }
-    if (hasNone) {
-      sel.innerHTML += `<option value="">None</option>`;
-    }
+    if (hasAll)  sel.innerHTML += `<option value="all">All Accounts</option>`;
+    if (hasNone) sel.innerHTML += `<option value="">None</option>`;
 
     accounts.forEach(acc => {
       const opt = document.createElement('option');
@@ -328,16 +538,11 @@ async function populateAccountSelects() {
       sel.appendChild(opt);
     });
 
-    // restore previous value if still valid
     if (currentVal) sel.value = currentVal;
 
-    // set defaults from settings
     const settings = getSettings();
-    if (selectId === 'transaction-account') {
-      const defExp = settings.defaultExpenseAccount;
-      if (defExp && accounts.find(a => a.id === defExp)) {
-        sel.value = defExp;
-      }
+    if (selectId === 'transaction-account' && settings.defaultExpenseAccount) {
+      sel.value = settings.defaultExpenseAccount;
     }
     if (selectId === 'default-expense-account' && settings.defaultExpenseAccount) {
       sel.value = settings.defaultExpenseAccount;
@@ -349,21 +554,15 @@ async function populateAccountSelects() {
 }
 
 // ============================================
-// INIT ACCOUNT MODAL EVENTS
+// INIT ACCOUNT EVENTS
 // ============================================
 
 function initAccountEvents() {
-  // Save button
   el('account-save-btn').addEventListener('click', saveAccountFromModal);
-
-  // Close buttons
   qs('#account-modal .modal-close').addEventListener('click', closeAccountModal);
   qs('#account-modal .modal-backdrop').addEventListener('click', closeAccountModal);
-
-  // Add account button
   el('add-account-btn').addEventListener('click', () => openAccountModal());
 
-  // Color picker
   qsa('.color-option').forEach(opt => {
     opt.addEventListener('click', () => {
       qsa('.color-option').forEach(o => o.classList.remove('active'));
@@ -371,20 +570,7 @@ function initAccountEvents() {
     });
   });
 
-  // Account type change — show/hide bank field
   el('account-type').addEventListener('change', () => {
     toggle('bank-name-group', el('account-type').value === 'bank');
   });
-}
-
-// ============================================
-// HELPER
-// ============================================
-
-function escapeHTML(str) {
-  return String(str)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
 }
