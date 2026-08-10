@@ -1,5 +1,5 @@
 /* ============================================
-   MY LEDGER — DATABASE (IndexedDB via raw API)
+   MY LEDGER — DATABASE + SYNC BRIDGE
    ============================================ */
 
 'use strict';
@@ -22,13 +22,10 @@ function openDB() {
     req.onupgradeneeded = (event) => {
       const db = event.target.result;
 
-      // ACCOUNTS store
       if (!db.objectStoreNames.contains('accounts')) {
         const acc = db.createObjectStore('accounts', { keyPath: 'id' });
         acc.createIndex('type', 'type', { unique: false });
       }
-
-      // TRANSACTIONS store
       if (!db.objectStoreNames.contains('transactions')) {
         const tx = db.createObjectStore('transactions', { keyPath: 'id' });
         tx.createIndex('date',      'date',      { unique: false });
@@ -36,36 +33,22 @@ function openDB() {
         tx.createIndex('accountId', 'accountId', { unique: false });
         tx.createIndex('category',  'category',  { unique: false });
       }
-
-      // BUDGETS store
       if (!db.objectStoreNames.contains('budgets')) {
         db.createObjectStore('budgets', { keyPath: 'id' });
       }
-
-      // GOALS store
       if (!db.objectStoreNames.contains('goals')) {
         db.createObjectStore('goals', { keyPath: 'id' });
       }
-
-      // DEBTS store
       if (!db.objectStoreNames.contains('debts')) {
         db.createObjectStore('debts', { keyPath: 'id' });
       }
-
-      // RECURRING store
       if (!db.objectStoreNames.contains('recurring')) {
         db.createObjectStore('recurring', { keyPath: 'id' });
       }
     };
 
-    req.onsuccess = (event) => {
-      _db = event.target.result;
-      resolve(_db);
-    };
-
-    req.onerror = (event) => {
-      reject('DB Error: ' + event.target.error);
-    };
+    req.onsuccess  = (e) => { _db = e.target.result; resolve(_db); };
+    req.onerror    = (e) => reject('DB Error: ' + e.target.error);
   });
 }
 
@@ -124,12 +107,12 @@ function dbClear(storeName) {
 }
 
 // ============================================
-// ACCOUNTS
+// ACCOUNTS (with sync)
 // ============================================
 
 function getAllAccounts() {
-  return dbGetAll('accounts').then(accounts =>
-    accounts.sort((a, b) => a.createdAt - b.createdAt)
+  return dbGetAll('accounts').then(a =>
+    a.sort((x, y) => x.createdAt - y.createdAt)
   );
 }
 
@@ -137,19 +120,22 @@ function getAccount(id) {
   return dbGet('accounts', id);
 }
 
-function saveAccount(account) {
-  if (!account.id) account.id = generateId();
+async function saveAccount(account) {
+  if (!account.id)        account.id        = generateId();
   if (!account.createdAt) account.createdAt = Date.now();
   account.updatedAt = Date.now();
-  return dbPut('accounts', account);
+  await dbPut('accounts', account);
+  syncItem('accounts', account);          // ← sync to cloud
+  return account;
 }
 
-function deleteAccount(id) {
-  return dbDelete('accounts', id);
+async function deleteAccount(id) {
+  await dbDelete('accounts', id);
+  deleteSyncItem('accounts', id);         // ← delete from cloud
 }
 
 // ============================================
-// TRANSACTIONS
+// TRANSACTIONS (with sync)
 // ============================================
 
 function getAllTransactions() {
@@ -162,57 +148,54 @@ function getTransaction(id) {
   return dbGet('transactions', id);
 }
 
-function saveTransaction(tx) {
-  if (!tx.id) tx.id = generateId();
+async function saveTransaction(tx) {
+  if (!tx.id)        tx.id        = generateId();
   if (!tx.createdAt) tx.createdAt = Date.now();
   tx.updatedAt = Date.now();
-  return dbPut('transactions', tx);
+  await dbPut('transactions', tx);
+  syncItem('transactions', tx);           // ← sync to cloud
+  return tx;
 }
 
-function deleteTransaction(id) {
-  return dbGet('transactions', id).then(tx => {
-    if (!tx) return;
-    return dbDelete('transactions', id);
-  });
+async function deleteTransaction(id) {
+  await dbDelete('transactions', id);
+  deleteSyncItem('transactions', id);     // ← delete from cloud
 }
 
-// Get transactions filtered by account
 function getTransactionsByAccount(accountId) {
   return getAllTransactions().then(txs =>
-    txs.filter(tx => tx.accountId === accountId ||
-                     tx.fromAccountId === accountId ||
-                     tx.toAccountId === accountId)
+    txs.filter(tx =>
+      tx.accountId     === accountId ||
+      tx.fromAccountId === accountId ||
+      tx.toAccountId   === accountId
+    )
   );
 }
 
 // ============================================
-// ACCOUNT BALANCE CALCULATION
+// BALANCE CALCULATIONS
 // ============================================
 
 async function calculateAccountBalance(accountId) {
-  const account      = await getAccount(accountId);
+  const account = await getAccount(accountId);
   if (!account) return 0;
 
   const transactions = await getAllTransactions();
   let balance        = parseAmount(account.startingBalance || 0);
 
   transactions.forEach(tx => {
-    if (tx.type === 'income' && tx.accountId === accountId) {
+    if (tx.type === 'income'   && tx.accountId === accountId)
       balance += parseAmount(tx.amount);
-    }
-    if (tx.type === 'expense' && tx.accountId === accountId) {
+    if (tx.type === 'expense'  && tx.accountId === accountId)
       balance -= parseAmount(tx.amount);
-    }
-    if (tx.type === 'paylater' && tx.status === 'paid' && tx.paidAccountId === accountId) {
+    if (tx.type === 'paylater' && tx.status === 'paid' &&
+        tx.paidAccountId === accountId)
       balance -= parseAmount(tx.amount);
-    }
     if (tx.type === 'transfer') {
       if (tx.fromAccountId === accountId) balance -= parseAmount(tx.amount);
       if (tx.toAccountId   === accountId) balance += parseAmount(tx.amount);
-      // Transfer fee deducted from source account
-      if (tx.fromAccountId === accountId && tx.fee) {
+      if (tx.fromAccountId === accountId && tx.fee)
         balance -= parseAmount(tx.fee);
-      }
     }
   });
 
@@ -221,18 +204,17 @@ async function calculateAccountBalance(accountId) {
 
 async function getAllAccountsWithBalances() {
   const accounts = await getAllAccounts();
-  const withBal  = await Promise.all(
+  return Promise.all(
     accounts.map(async acc => ({
       ...acc,
       balance: await calculateAccountBalance(acc.id)
     }))
   );
-  return withBal;
 }
 
 async function getTotalBalance() {
   const accounts = await getAllAccountsWithBalances();
-  return round2(accounts.reduce((sum, acc) => sum + acc.balance, 0));
+  return round2(accounts.reduce((s, a) => s + a.balance, 0));
 }
 
 // ============================================
@@ -246,23 +228,26 @@ function getPendingPayLater() {
 }
 
 // ============================================
-// BUDGETS
+// BUDGETS (with sync)
 // ============================================
 
 function getAllBudgets() {
   return dbGetAll('budgets');
 }
 
-function saveBudget(budget) {
+async function saveBudget(budget) {
   if (!budget.id) budget.id = generateId();
-  return dbPut('budgets', budget);
+  budget.updatedAt = Date.now();
+  await dbPut('budgets', budget);
+  syncItem('budgets', budget);
+  return budget;
 }
 
-function deleteBudget(id) {
-  return dbDelete('budgets', id);
+async function deleteBudget(id) {
+  await dbDelete('budgets', id);
+  deleteSyncItem('budgets', id);
 }
 
-// Get budget for current month
 function getCurrentMonthBudgets(year, month) {
   return getAllBudgets().then(budgets =>
     budgets.filter(b => b.year === year && b.month === month)
@@ -270,61 +255,73 @@ function getCurrentMonthBudgets(year, month) {
 }
 
 // ============================================
-// GOALS
+// GOALS (with sync)
 // ============================================
 
 function getAllGoals() {
-  return dbGetAll('goals').then(goals =>
-    goals.sort((a, b) => a.createdAt - b.createdAt)
+  return dbGetAll('goals').then(g =>
+    g.sort((a, b) => a.createdAt - b.createdAt)
   );
 }
 
-function saveGoal(goal) {
-  if (!goal.id) goal.id = generateId();
+async function saveGoal(goal) {
+  if (!goal.id)        goal.id        = generateId();
   if (!goal.createdAt) goal.createdAt = Date.now();
-  return dbPut('goals', goal);
+  goal.updatedAt = Date.now();
+  await dbPut('goals', goal);
+  syncItem('goals', goal);
+  return goal;
 }
 
-function deleteGoal(id) {
-  return dbDelete('goals', id);
+async function deleteGoal(id) {
+  await dbDelete('goals', id);
+  deleteSyncItem('goals', id);
 }
 
 // ============================================
-// DEBTS
+// DEBTS (with sync)
 // ============================================
 
 function getAllDebts() {
-  return dbGetAll('debts').then(debts =>
-    debts.sort((a, b) => a.createdAt - b.createdAt)
+  return dbGetAll('debts').then(d =>
+    d.sort((a, b) => a.createdAt - b.createdAt)
   );
 }
 
-function saveDebt(debt) {
-  if (!debt.id) debt.id = generateId();
+async function saveDebt(debt) {
+  if (!debt.id)        debt.id        = generateId();
   if (!debt.createdAt) debt.createdAt = Date.now();
-  return dbPut('debts', debt);
+  debt.updatedAt = Date.now();
+  await dbPut('debts', debt);
+  syncItem('debts', debt);
+  return debt;
 }
 
-function deleteDebt(id) {
-  return dbDelete('debts', id);
+async function deleteDebt(id) {
+  await dbDelete('debts', id);
+  deleteSyncItem('debts', id);
 }
 
 // ============================================
-// RECURRING
+// RECURRING (with sync)
 // ============================================
 
 function getAllRecurring() {
   return dbGetAll('recurring');
 }
 
-function saveRecurring(rec) {
-  if (!rec.id) rec.id = generateId();
+async function saveRecurring(rec) {
+  if (!rec.id)        rec.id        = generateId();
   if (!rec.createdAt) rec.createdAt = Date.now();
-  return dbPut('recurring', rec);
+  rec.updatedAt = Date.now();
+  await dbPut('recurring', rec);
+  syncItem('recurring', rec);
+  return rec;
 }
 
-function deleteRecurring(id) {
-  return dbDelete('recurring', id);
+async function deleteRecurring(id) {
+  await dbDelete('recurring', id);
+  deleteSyncItem('recurring', id);
 }
 
 // ============================================
@@ -333,63 +330,24 @@ function deleteRecurring(id) {
 
 async function seedDefaultAccounts() {
   const existing = await getAllAccounts();
-  if (existing.length > 0) return; // already seeded
+  if (existing.length > 0) return;
 
   const defaults = [
-    {
-      id:              generateId(),
-      name:            'MTN MoMo 1',
-      type:            'momo',
-      bankName:        '',
-      startingBalance: 0,
-      color:           '#F5C518',
-      notes:           '',
-      createdAt:       Date.now()
-    },
-    {
-      id:              generateId(),
-      name:            'MTN MoMo 2',
-      type:            'momo',
-      bankName:        '',
-      startingBalance: 0,
-      color:           '#F97316',
-      notes:           '',
-      createdAt:       Date.now() + 1
-    },
-    {
-      id:              generateId(),
-      name:            'CalBank',
-      type:            'bank',
-      bankName:        'CalBank',
-      startingBalance: 0,
-      color:           '#3B82F6',
-      notes:           '',
-      createdAt:       Date.now() + 2
-    },
-    {
-      id:              generateId(),
-      name:            'GTBank',
-      type:            'bank',
-      bankName:        'GTBank',
-      startingBalance: 0,
-      color:           '#22C55E',
-      notes:           '',
-      createdAt:       Date.now() + 3
-    },
-    {
-      id:              generateId(),
-      name:            'Cash',
-      type:            'cash',
-      bankName:        '',
-      startingBalance: 0,
-      color:           '#A855F7',
-      notes:           '',
-      createdAt:       Date.now() + 4
-    }
+    { name: 'MTN MoMo 1', type: 'momo',  bankName: '', color: '#F5C518' },
+    { name: 'MTN MoMo 2', type: 'momo',  bankName: '', color: '#F97316' },
+    { name: 'CalBank',    type: 'bank',  bankName: 'CalBank', color: '#3B82F6' },
+    { name: 'GTBank',     type: 'bank',  bankName: 'GTBank',  color: '#22C55E' },
+    { name: 'Cash',       type: 'cash',  bankName: '', color: '#A855F7' }
   ];
 
-  for (const acc of defaults) {
-    await saveAccount(acc);
+  for (let i = 0; i < defaults.length; i++) {
+    await saveAccount({
+      id:              generateId(),
+      ...defaults[i],
+      startingBalance: 0,
+      notes:           '',
+      createdAt:       Date.now() + i
+    });
   }
 }
 
@@ -398,57 +356,40 @@ async function seedDefaultAccounts() {
 // ============================================
 
 async function exportAllData() {
-  const [accounts, transactions, budgets, goals, debts, recurring] =
-    await Promise.all([
-      getAllAccounts(),
-      getAllTransactions(),
-      getAllBudgets(),
-      getAllGoals(),
-      getAllDebts(),
-      getAllRecurring()
-    ]);
-
+  const [accounts, transactions, budgets,
+         goals, debts, recurring] = await Promise.all([
+    getAllAccounts(), getAllTransactions(), getAllBudgets(),
+    getAllGoals(),    getAllDebts(),        getAllRecurring()
+  ]);
   return {
-    version:      1,
-    exportedAt:   new Date().toISOString(),
-    appName:      'My Ledger',
-    settings:     getSettings(),
-    accounts,
-    transactions,
-    budgets,
-    goals,
-    debts,
-    recurring
+    version: 1, exportedAt: new Date().toISOString(),
+    appName: 'My Ledger', settings: getSettings(),
+    accounts, transactions, budgets, goals, debts, recurring
   };
 }
 
 async function importAllData(data) {
-  if (!data || data.appName !== 'My Ledger') {
+  if (!data || data.appName !== 'My Ledger')
     throw new Error('Invalid backup file');
-  }
 
-  const stores = ['accounts', 'transactions', 'budgets', 'goals', 'debts', 'recurring'];
-  for (const store of stores) {
+  for (const store of
+    ['accounts','transactions','budgets','goals','debts','recurring']) {
     await dbClear(store);
   }
 
   if (data.settings) saveSettings(data.settings);
 
-  const save = async (items, fn) => {
-    for (const item of (items || [])) await fn(item);
-  };
-
-  await save(data.accounts,     saveAccount);
-  await save(data.transactions, saveTransaction);
-  await save(data.budgets,      saveBudget);
-  await save(data.goals,        saveGoal);
-  await save(data.debts,        saveDebt);
-  await save(data.recurring,    saveRecurring);
+  for (const item of (data.accounts     || [])) await saveAccount(item);
+  for (const item of (data.transactions || [])) await saveTransaction(item);
+  for (const item of (data.budgets      || [])) await saveBudget(item);
+  for (const item of (data.goals        || [])) await saveGoal(item);
+  for (const item of (data.debts        || [])) await saveDebt(item);
+  for (const item of (data.recurring    || [])) await saveRecurring(item);
 }
 
 async function clearAllData() {
-  const stores = ['accounts', 'transactions', 'budgets', 'goals', 'debts', 'recurring'];
-  for (const store of stores) {
+  for (const store of
+    ['accounts','transactions','budgets','goals','debts','recurring']) {
     await dbClear(store);
   }
   localStorage.removeItem('ml_settings');
