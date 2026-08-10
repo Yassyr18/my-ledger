@@ -140,8 +140,10 @@ async function signInWithGoogle() {
 
 async function onSignedIn(user) {
   hideSyncLoginScreen();
+  await pullSettings();
   await pullFromCloud();
   await pushToCloud();
+  await syncSettings();
   startRealtimeListeners();
   setSyncStatus('ok');
   setSetting('lastSynced', new Date().toISOString());
@@ -194,7 +196,6 @@ async function pushToCloud() {
       const items = await dbGetAll(store);
       if (items.length === 0) continue;
 
-      // Firestore batch limit is 500
       const chunkSize = 400;
       for (let i = 0; i < items.length; i += chunkSize) {
         const chunk = items.slice(i, i + chunkSize);
@@ -208,6 +209,9 @@ async function pushToCloud() {
         await batch.commit();
       }
     }
+
+    // Also sync settings/preferences
+    await syncSettings();
 
     setSyncStatus('ok');
     setSetting('lastSynced', new Date().toISOString());
@@ -401,6 +405,97 @@ function initForceSyncBtn() {
     await refreshAll();
     showToast('Sync complete ✓', 'success');
   });
+}
+
+// ============================================
+// SYNC SETTINGS & PREFERENCES
+// ============================================
+
+async function syncSettings() {
+  if (!_syncReady || !_currentUser || !_firestore) return;
+
+  try {
+    const uid = _currentUser.uid;
+
+    // Gather all synced preferences
+    const prefs = {
+      id:                'user_prefs',
+      settings:          getSettings(),
+      expenseCategories: getExpenseCategories(),
+      incomeCategories:  getIncomeCategories(),
+      vendorPresets:     getVendorPresets(),
+      savingsAccountIds: getSavingsAccountIds(),
+      excludedAccountIds:getExcludedAccountIds(),
+      categoryUsage:     getCategoryUsage(),
+      balanceVisibility: getBalanceVisibility(),
+      updatedAt:         Date.now()
+    };
+
+    await _firestore
+      .collection('users').doc(uid)
+      .collection('preferences').doc('user_prefs')
+      .set(prefs, { merge: true });
+
+  } catch (err) {
+    console.error('Sync settings error:', err);
+  }
+}
+
+async function pullSettings() {
+  if (!_syncReady || !_currentUser || !_firestore) return;
+
+  try {
+    const uid = _currentUser.uid;
+    const doc = await _firestore
+      .collection('users').doc(uid)
+      .collection('preferences').doc('user_prefs')
+      .get();
+
+    if (!doc.exists) return;
+    const prefs = doc.data();
+
+    // Only apply if cloud is newer
+    const localUpdated = getSetting('prefsUpdatedAt', 0);
+    if ((prefs.updatedAt || 0) <= localUpdated) return;
+
+    // Apply cloud settings
+    if (prefs.settings) {
+      const cloudSettings = prefs.settings;
+      // Preserve local-only settings
+      cloudSettings.lastSynced   = getSetting('lastSynced', null);
+      cloudSettings.syncSkipped  = getSetting('syncSkipped', false);
+      saveSettings(cloudSettings);
+    }
+
+    if (prefs.expenseCategories) {
+      saveExpenseCategories(prefs.expenseCategories);
+    }
+    if (prefs.incomeCategories) {
+      saveIncomeCategories(prefs.incomeCategories);
+    }
+    if (prefs.vendorPresets) {
+      saveVendorPresets(prefs.vendorPresets);
+    }
+    if (prefs.savingsAccountIds) {
+      setSavingsAccountIds(prefs.savingsAccountIds);
+    }
+    if (prefs.excludedAccountIds) {
+      setExcludedAccountIds(prefs.excludedAccountIds);
+    }
+    if (prefs.categoryUsage) {
+      localStorage.setItem('ml_cat_usage',
+        JSON.stringify(prefs.categoryUsage));
+    }
+    if (prefs.balanceVisibility) {
+      localStorage.setItem('ml_balance_vis',
+        JSON.stringify(prefs.balanceVisibility));
+    }
+
+    setSetting('prefsUpdatedAt', prefs.updatedAt);
+
+  } catch (err) {
+    console.error('Pull settings error:', err);
+  }
 }
 
 // ============================================
