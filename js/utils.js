@@ -730,4 +730,3 @@ function triggerSettingsSync() {
     syncSettings();
   }, 1500);
 }
-}
