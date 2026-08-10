@@ -108,12 +108,6 @@ async function finishOnboarding() {
 // ============================================
 
 async function launchApp() {
-  // Check PIN
-  const pinShowing = initPinLock();
-  if (!pinShowing) {
-    show('main-app');
-  }
-
   // Init all modules
   initAccountEvents();
   initTransactionEvents();
@@ -131,24 +125,34 @@ async function launchApp() {
   initFabMenu();
   initMoreMenu();
   initNotifications();
+  initForceSyncBtn();
   registerServiceWorker();
 
-  // Populate account dropdowns
+  // Start sync (handles sign-in screen if needed)
+  await initSync();
+}
+
+async function launchMainApp() {
+  // Check PIN
+  const pinShowing = initPinLock();
+  if (!pinShowing) {
+    show('main-app');
+  }
+
+  // Populate dropdowns
   await populateAccountSelects();
 
-  // Render initial page
+  // Render home
   await renderDashboard();
 
   appInitialized = true;
 
-  // Check recurring transactions
+  // Check recurring
   await checkRecurringTransactions();
 
-  // Init force sync button in settings
-  initForceSyncBtn();
-
-  // Start cloud sync (runs in background)
-  initSync();
+  // Refresh notifications
+  await updateNotificationBadge();
+}
 
 // ============================================
 // NAVIGATION
