@@ -1,0 +1,991 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="My Ledger" />
+  <meta name="theme-color" content="#0A0A0F" />
+  <title>My Ledger</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- APP WRAPPER -->
+  <div id="app">
+
+    <!-- SPLASH SCREEN -->
+    <div id="splash">
+      <div class="splash-content">
+        <div class="splash-icon">₵</div>
+        <h1>My Ledger</h1>
+        <p>Your personal finance tracker</p>
+      </div>
+    </div>
+
+    <!-- ONBOARDING (first time only) -->
+    <div id="onboarding" class="screen hidden">
+      <div class="onboarding-content">
+        <div class="onboarding-slide active" data-slide="0">
+          <div class="onboard-icon">👋</div>
+          <h2>Welcome, Yasir Arafat!</h2>
+          <p>Track every cedi you earn and spend — simply and privately.</p>
+        </div>
+        <div class="onboarding-slide" data-slide="1">
+          <div class="onboard-icon">📱</div>
+          <h2>All Your Accounts</h2>
+          <p>MoMo, bank, cash — see everything in one place.</p>
+        </div>
+        <div class="onboarding-slide" data-slide="2">
+          <div class="onboard-icon">🔒</div>
+          <h2>Fully Private</h2>
+          <p>Your data never leaves your phone. No internet needed.</p>
+        </div>
+        <div class="onboarding-slide" data-slide="3">
+          <div class="onboard-icon">⏰</div>
+          <h2>Pay Later</h2>
+          <p>Track what you owe vendors and pay it off with one tap.</p>
+        </div>
+      </div>
+      <div class="onboarding-dots">
+        <span class="dot active"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+        <span class="dot"></span>
+      </div>
+      <div class="onboarding-actions">
+        <button id="onboard-skip" class="btn-ghost">Skip</button>
+        <button id="onboard-next" class="btn-primary">Next</button>
+      </div>
+    </div>
+
+    <!-- PIN LOCK SCREEN -->
+    <div id="pin-screen" class="screen hidden">
+      <div class="pin-content">
+        <div class="pin-logo">₵</div>
+        <h2>Enter PIN</h2>
+        <div class="pin-dots">
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+          <span class="pin-dot"></span>
+        </div>
+        <div class="pin-error hidden">Incorrect PIN</div>
+        <div class="pin-pad">
+          <button class="pin-key" data-key="1">1</button>
+          <button class="pin-key" data-key="2">2</button>
+          <button class="pin-key" data-key="3">3</button>
+          <button class="pin-key" data-key="4">4</button>
+          <button class="pin-key" data-key="5">5</button>
+          <button class="pin-key" data-key="6">6</button>
+          <button class="pin-key" data-key="7">7</button>
+          <button class="pin-key" data-key="8">8</button>
+          <button class="pin-key" data-key="9">9</button>
+          <button class="pin-key pin-key-empty"></button>
+          <button class="pin-key" data-key="0">0</button>
+          <button class="pin-key pin-key-del" data-key="del">⌫</button>
+        </div>
+        <button id="pin-forgot" class="btn-ghost-small">Forgot PIN?</button>
+      </div>
+    </div>
+
+    <!-- MAIN APP (shown after PIN / if no PIN set) -->
+    <div id="main-app" class="hidden">
+
+      <!-- TOP BAR -->
+      <header id="top-bar">
+        <div class="top-bar-left">
+          <span id="page-title">My Ledger</span>
+        </div>
+        <div class="top-bar-right">
+          <button class="icon-btn" id="search-toggle" aria-label="Search">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            </svg>
+          </button>
+          <button class="icon-btn" id="notif-btn" aria-label="Notifications">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+              <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+            </svg>
+            <span class="notif-badge hidden" id="notif-badge">0</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- SEARCH BAR (slides down) -->
+      <div id="search-bar" class="hidden">
+        <div class="search-input-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="search-input" placeholder="Search transactions..." />
+          <button id="search-close">✕</button>
+        </div>
+        <div id="search-results"></div>
+      </div>
+
+      <!-- PAGES -->
+      <main id="pages">
+
+        <!-- HOME PAGE -->
+        <section id="page-home" class="page active">
+          <div class="page-scroll">
+
+            <!-- GREETING + BALANCE -->
+            <div class="hero-card">
+              <div class="hero-greeting" id="greeting">Good morning, Yasir! 👋</div>
+              <div class="hero-label">Total Balance</div>
+              <div class="hero-balance" id="total-balance">GH₵ 0.00</div>
+              <div class="hero-sub">
+                <span class="hero-income" id="hero-income">↑ GH₵ 0.00</span>
+                <span class="hero-divider">|</span>
+                <span class="hero-expense" id="hero-expense">↓ GH₵ 0.00</span>
+              </div>
+              <div class="hero-period">This month</div>
+            </div>
+
+            <!-- ACCOUNT CARDS (horizontal scroll) -->
+            <div class="section-header">
+              <span>Accounts</span>
+              <button class="section-link" id="go-accounts">See all</button>
+            </div>
+            <div class="accounts-scroll" id="accounts-scroll">
+              <!-- Populated by JS -->
+            </div>
+
+            <!-- PAY LATER BANNER (shows if any pending) -->
+            <div id="pay-later-banner" class="hidden">
+              <div class="pay-later-banner-inner">
+                <span class="pay-later-icon">⏰</span>
+                <div>
+                  <div class="pay-later-title">Pay Later Pending</div>
+                  <div class="pay-later-sub" id="pay-later-count">0 items · GH₵ 0.00</div>
+                </div>
+                <button class="btn-accent-small" id="view-pay-later">View</button>
+              </div>
+            </div>
+
+            <!-- QUICK ACTIONS -->
+            <div class="quick-actions">
+              <button class="qa-btn" id="qa-expense">
+                <span class="qa-icon expense-icon">↑</span>
+                <span>Expense</span>
+              </button>
+              <button class="qa-btn" id="qa-income">
+                <span class="qa-icon income-icon">↓</span>
+                <span>Income</span>
+              </button>
+              <button class="qa-btn" id="qa-transfer">
+                <span class="qa-icon transfer-icon">⇄</span>
+                <span>Transfer</span>
+              </button>
+              <button class="qa-btn" id="qa-paylater">
+                <span class="qa-icon paylater-icon">⏰</span>
+                <span>Pay Later</span>
+              </button>
+            </div>
+
+            <!-- RECENT TRANSACTIONS -->
+            <div class="section-header">
+              <span>Recent</span>
+              <button class="section-link" id="go-transactions">See all</button>
+            </div>
+            <div id="recent-transactions" class="transactions-list">
+              <div class="empty-state">
+                <div class="empty-icon">📋</div>
+                <p>No transactions yet</p>
+                <span>Tap + to add your first entry</span>
+              </div>
+            </div>
+
+            <!-- SPENDING INSIGHT CARD -->
+            <div id="insight-card" class="insight-card hidden">
+              <div class="insight-icon">💡</div>
+              <div class="insight-text" id="insight-text"></div>
+            </div>
+
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- TRANSACTIONS PAGE -->
+        <section id="page-transactions" class="page hidden">
+          <div class="page-scroll">
+            <div class="filter-bar">
+              <button class="filter-chip active" data-filter="all">All</button>
+              <button class="filter-chip" data-filter="income">Income</button>
+              <button class="filter-chip" data-filter="expense">Expense</button>
+              <button class="filter-chip" data-filter="transfer">Transfer</button>
+              <button class="filter-chip" data-filter="paylater">Pay Later</button>
+            </div>
+            <div class="filter-row">
+              <select id="filter-account" class="filter-select">
+                <option value="all">All Accounts</option>
+              </select>
+              <select id="filter-period" class="filter-select">
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="week">This Week</option>
+                <option value="month" selected>This Month</option>
+                <option value="custom">Custom Range</option>
+              </select>
+            </div>
+            <div id="custom-date-range" class="hidden">
+              <input type="date" id="date-from" class="date-input" />
+              <span>to</span>
+              <input type="date" id="date-to" class="date-input" />
+              <button class="btn-accent-small" id="apply-date-range">Apply</button>
+            </div>
+            <div id="all-transactions" class="transactions-list"></div>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- STATS PAGE -->
+        <section id="page-stats" class="page hidden">
+          <div class="page-scroll">
+            <div class="stats-period-bar">
+              <button class="period-btn active" data-period="month">Month</button>
+              <button class="period-btn" data-period="week">Week</button>
+              <button class="period-btn" data-period="year">Year</button>
+              <button class="period-btn" data-period="all">All Time</button>
+            </div>
+
+            <!-- SUMMARY CARDS -->
+            <div class="stats-summary">
+              <div class="stat-card income">
+                <div class="stat-label">Income</div>
+                <div class="stat-value" id="stat-income">GH₵ 0.00</div>
+              </div>
+              <div class="stat-card expense">
+                <div class="stat-label">Expenses</div>
+                <div class="stat-value" id="stat-expense">GH₵ 0.00</div>
+              </div>
+              <div class="stat-card savings">
+                <div class="stat-label">Net Savings</div>
+                <div class="stat-value" id="stat-savings">GH₵ 0.00</div>
+              </div>
+              <div class="stat-card paylater">
+                <div class="stat-label">Pay Later</div>
+                <div class="stat-value" id="stat-paylater">GH₵ 0.00</div>
+              </div>
+            </div>
+
+            <!-- SPENDING BY CATEGORY (PIE) -->
+            <div class="chart-card">
+              <div class="chart-title">Spending by Category</div>
+              <canvas id="chart-category" width="300" height="300"></canvas>
+              <div id="chart-category-legend" class="chart-legend"></div>
+            </div>
+
+            <!-- INCOME VS EXPENSE (BAR) -->
+            <div class="chart-card">
+              <div class="chart-title">Income vs Expenses</div>
+              <canvas id="chart-monthly" width="300" height="200"></canvas>
+            </div>
+
+            <!-- ACCOUNT BREAKDOWN -->
+            <div class="chart-card">
+              <div class="chart-title">Balance by Account</div>
+              <div id="account-breakdown" class="account-breakdown-list"></div>
+            </div>
+
+            <!-- TOP SPENDING CATEGORIES -->
+            <div class="chart-card">
+              <div class="chart-title">Top Spending Categories</div>
+              <div id="top-categories" class="top-categories-list"></div>
+            </div>
+
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- PAY LATER PAGE -->
+        <section id="page-paylater" class="page hidden">
+          <div class="page-scroll">
+            <div class="paylater-summary">
+              <div class="pl-sum-item">
+                <span class="pl-sum-label">Total Pending</span>
+                <span class="pl-sum-value" id="pl-total">GH₵ 0.00</span>
+              </div>
+              <div class="pl-sum-item">
+                <span class="pl-sum-label">Items</span>
+                <span class="pl-sum-value" id="pl-count">0</span>
+              </div>
+            </div>
+            <div class="filter-bar">
+              <button class="filter-chip active" data-pl-filter="pending">Pending</button>
+              <button class="filter-chip" data-pl-filter="paid">Paid</button>
+              <button class="filter-chip" data-pl-filter="all">All</button>
+            </div>
+            <div id="paylater-list" class="transactions-list"></div>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- ACCOUNTS PAGE -->
+        <section id="page-accounts" class="page hidden">
+          <div class="page-scroll">
+            <div class="total-balance-bar">
+              <span>Total across all accounts</span>
+              <span id="accounts-total-balance">GH₵ 0.00</span>
+            </div>
+            <div id="accounts-list" class="accounts-full-list"></div>
+            <button class="btn-add-account" id="add-account-btn">
+              <span>+</span> Add Account
+            </button>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- BUDGETS PAGE -->
+        <section id="page-budgets" class="page hidden">
+          <div class="page-scroll">
+            <div class="budget-month-header">
+              <button id="budget-prev-month">‹</button>
+              <span id="budget-month-label">January 2025</span>
+              <button id="budget-next-month">›</button>
+            </div>
+            <div class="budget-overall-card" id="budget-overall-card">
+              <div class="budget-overall-label">Monthly Budget</div>
+              <div class="budget-overall-value" id="budget-overall-value">Not set</div>
+              <div class="budget-progress-wrap hidden" id="budget-progress-wrap">
+                <div class="budget-progress-bar">
+                  <div class="budget-progress-fill" id="budget-overall-fill"></div>
+                </div>
+                <div class="budget-progress-labels">
+                  <span id="budget-spent-label">GH₵ 0 spent</span>
+                  <span id="budget-left-label">GH₵ 0 left</span>
+                </div>
+              </div>
+              <button class="btn-accent-small" id="set-overall-budget">
+                Set Budget
+              </button>
+            </div>
+            <div class="section-header">
+              <span>Category Budgets</span>
+              <button class="section-link" id="add-category-budget">+ Add</button>
+            </div>
+            <div id="category-budgets-list"></div>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- MORE PAGE -->
+        <section id="page-more" class="page hidden">
+          <div class="page-scroll">
+            <div class="more-section-title">Finance</div>
+            <div class="more-menu">
+              <button class="more-item" id="go-goals">
+                <span class="more-item-icon">🎯</span>
+                <span class="more-item-label">Savings Goals</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+              <button class="more-item" id="go-debts">
+                <span class="more-item-icon">💳</span>
+                <span class="more-item-label">Debts & Loans</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+              <button class="more-item" id="go-recurring">
+                <span class="more-item-icon">🔄</span>
+                <span class="more-item-label">Recurring Transactions</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+            </div>
+
+            <div class="more-section-title">Data</div>
+            <div class="more-menu">
+              <button class="more-item" id="go-export">
+                <span class="more-item-icon">📤</span>
+                <span class="more-item-label">Export Data</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+              <button class="more-item" id="go-backup">
+                <span class="more-item-icon">💾</span>
+                <span class="more-item-label">Backup & Restore</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+            </div>
+
+            <div class="more-section-title">App</div>
+            <div class="more-menu">
+              <button class="more-item" id="go-settings">
+                <span class="more-item-icon">⚙️</span>
+                <span class="more-item-label">Settings</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+              <button class="more-item" id="go-about">
+                <span class="more-item-icon">ℹ️</span>
+                <span class="more-item-label">About</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+            </div>
+
+            <div class="app-version">My Ledger v1.0.0</div>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- SUB PAGES (slide in from right) -->
+
+        <!-- GOALS PAGE -->
+        <section id="page-goals" class="page subpage hidden">
+          <div class="subpage-header">
+            <button class="back-btn" data-back="more">‹ Back</button>
+            <span>Savings Goals</span>
+            <button class="icon-btn" id="add-goal-btn">+</button>
+          </div>
+          <div class="page-scroll">
+            <div id="goals-list"></div>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- DEBTS PAGE -->
+        <section id="page-debts" class="page subpage hidden">
+          <div class="subpage-header">
+            <button class="back-btn" data-back="more">‹ Back</button>
+            <span>Debts & Loans</span>
+            <button class="icon-btn" id="add-debt-btn">+</button>
+          </div>
+          <div class="page-scroll">
+            <div class="debt-tabs">
+              <button class="debt-tab active" data-debt-tab="owe">I Owe</button>
+              <button class="debt-tab" data-debt-tab="owed">Owed to Me</button>
+            </div>
+            <div id="debts-list"></div>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- RECURRING PAGE -->
+        <section id="page-recurring" class="page subpage hidden">
+          <div class="subpage-header">
+            <button class="back-btn" data-back="more">‹ Back</button>
+            <span>Recurring</span>
+            <button class="icon-btn" id="add-recurring-btn">+</button>
+          </div>
+          <div class="page-scroll">
+            <div id="recurring-list"></div>
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+        <!-- SETTINGS PAGE -->
+        <section id="page-settings" class="page subpage hidden">
+          <div class="subpage-header">
+            <button class="back-btn" data-back="more">‹ Back</button>
+            <span>Settings</span>
+            <span></span>
+          </div>
+          <div class="page-scroll">
+            <div class="settings-section-title">Profile</div>
+            <div class="settings-group">
+              <div class="settings-item">
+                <span>Name</span>
+                <div class="settings-item-right">
+                  <span id="settings-name-display">Yasir Arafat</span>
+                  <button class="settings-edit-btn" id="edit-name-btn">Edit</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-section-title">Security</div>
+            <div class="settings-group">
+              <div class="settings-item">
+                <span>PIN Lock</span>
+                <label class="toggle">
+                  <input type="checkbox" id="pin-toggle" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-item" id="change-pin-row" style="display:none">
+                <span>Change PIN</span>
+                <button class="settings-edit-btn" id="change-pin-btn">Change</button>
+              </div>
+            </div>
+
+            <div class="settings-section-title">Preferences</div>
+            <div class="settings-group">
+              <div class="settings-item">
+                <span>Default Expense Account</span>
+                <select id="default-expense-account" class="settings-select">
+                  <option value="">None</option>
+                </select>
+              </div>
+              <div class="settings-item">
+                <span>Default Income Account</span>
+                <select id="default-income-account" class="settings-select">
+                  <option value="">None</option>
+                </select>
+              </div>
+              <div class="settings-item">
+                <span>Show Pesewas</span>
+                <label class="toggle">
+                  <input type="checkbox" id="show-pesewas" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div class="settings-item">
+                <span>Hide Balances</span>
+                <label class="toggle">
+                  <input type="checkbox" id="hide-balances" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+            </div>
+
+            <div class="settings-section-title">Data</div>
+            <div class="settings-group">
+              <button class="settings-item settings-danger" id="clear-data-btn">
+                <span>Clear All Data</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+            </div>
+
+            <div class="bottom-spacer"></div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- BOTTOM NAV -->
+      <nav id="bottom-nav">
+        <button class="nav-btn active" data-page="home">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          <span>Home</span>
+        </button>
+        <button class="nav-btn" data-page="transactions">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+          </svg>
+          <span>Transactions</span>
+        </button>
+        <button class="nav-btn nav-add-btn" id="fab-add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+        <button class="nav-btn" data-page="stats">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="6" y1="20" x2="6" y2="14"/>
+          </svg>
+          <span>Stats</span>
+        </button>
+        <button class="nav-btn" data-page="more">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>
+            <circle cx="5" cy="12" r="1"/>
+          </svg>
+          <span>More</span>
+        </button>
+      </nav>
+
+      <!-- FAB MENU (pops up when + is tapped) -->
+      <div id="fab-menu" class="hidden">
+        <div class="fab-overlay"></div>
+        <div class="fab-options">
+          <button class="fab-option" id="fab-expense">
+            <span class="fab-option-label">Expense</span>
+            <span class="fab-option-icon expense-icon">↑</span>
+          </button>
+          <button class="fab-option" id="fab-income">
+            <span class="fab-option-label">Income</span>
+            <span class="fab-option-icon income-icon">↓</span>
+          </button>
+          <button class="fab-option" id="fab-transfer">
+            <span class="fab-option-label">Transfer</span>
+            <span class="fab-option-icon transfer-icon">⇄</span>
+          </button>
+          <button class="fab-option" id="fab-paylater">
+            <span class="fab-option-label">Pay Later</span>
+            <span class="fab-option-icon paylater-icon">⏰</span>
+          </button>
+        </div>
+      </div>
+
+    </div><!-- end main-app -->
+
+  </div><!-- end app -->
+
+  <!-- MODALS -->
+
+  <!-- TRANSACTION MODAL -->
+  <div id="transaction-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title" id="transaction-modal-title">Add Expense</span>
+        <button class="modal-save" id="transaction-save-btn">Save</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="transaction-id" value="" />
+        <input type="hidden" id="transaction-type" value="expense" />
+
+        <!-- AMOUNT -->
+        <div class="amount-input-wrap">
+          <span class="amount-currency">GH₵</span>
+          <input type="number" id="transaction-amount" class="amount-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+
+        <!-- ACCOUNT (hidden for pay later) -->
+        <div class="form-group" id="account-group">
+          <label>Account</label>
+          <select id="transaction-account" class="form-select"></select>
+        </div>
+
+        <!-- FROM / TO ACCOUNT (transfer only) -->
+        <div class="form-group hidden" id="transfer-from-group">
+          <label>From Account</label>
+          <select id="transfer-from" class="form-select"></select>
+        </div>
+        <div class="form-group hidden" id="transfer-to-group">
+          <label>To Account</label>
+          <select id="transfer-to" class="form-select"></select>
+        </div>
+        <div class="form-group hidden" id="transfer-fee-group">
+          <label>Transfer Fee (GH₵)</label>
+          <input type="number" id="transfer-fee" class="form-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+
+        <!-- CATEGORY -->
+        <div class="form-group" id="category-group">
+          <label>Category</label>
+          <div class="category-grid" id="category-grid"></div>
+        </div>
+
+        <!-- DESCRIPTION -->
+        <div class="form-group">
+          <label>Description</label>
+          <input type="text" id="transaction-description" class="form-input"
+                 placeholder="What was this for?" />
+        </div>
+
+        <!-- VENDOR (expense/paylater) -->
+        <div class="form-group" id="vendor-group">
+          <label>Vendor / Person</label>
+          <input type="text" id="transaction-vendor" class="form-input"
+                 placeholder="e.g. Auntie Mary's Chop Bar" />
+        </div>
+
+        <!-- SOURCE (income only) -->
+        <div class="form-group hidden" id="source-group">
+          <label>From (Person / Company)</label>
+          <input type="text" id="transaction-source" class="form-input"
+                 placeholder="e.g. My Boss, Client name" />
+        </div>
+
+        <!-- DATE -->
+        <div class="form-group">
+          <label>Date & Time</label>
+          <input type="datetime-local" id="transaction-date" class="form-input" />
+        </div>
+
+        <!-- NOTE -->
+        <div class="form-group">
+          <label>Note (optional)</label>
+          <textarea id="transaction-note" class="form-textarea"
+                    placeholder="Any extra details..."></textarea>
+        </div>
+
+        <!-- NEED VS WANT (expense only) -->
+        <div class="form-group" id="necessity-group">
+          <label>Need or Want?</label>
+          <div class="necessity-slider-wrap">
+            <span>Need</span>
+            <input type="range" id="necessity-slider" min="1" max="5" value="3"
+                   class="necessity-slider" />
+            <span>Want</span>
+          </div>
+        </div>
+
+        <!-- RECURRING -->
+        <div class="form-group">
+          <div class="form-row-toggle">
+            <label>Recurring</label>
+            <label class="toggle">
+              <input type="checkbox" id="transaction-recurring" />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div id="recurring-options" class="hidden">
+            <select id="recurring-frequency" class="form-select">
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="biweekly">Every 2 Weeks</option>
+              <option value="monthly" selected>Monthly</option>
+              <option value="yearly">Yearly</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACCOUNT MODAL -->
+  <div id="account-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title" id="account-modal-title">Add Account</span>
+        <button class="modal-save" id="account-save-btn">Save</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="account-id" value="" />
+        <div class="form-group">
+          <label>Account Name</label>
+          <input type="text" id="account-name" class="form-input"
+                 placeholder="e.g. MTN MoMo Main" />
+        </div>
+        <div class="form-group">
+          <label>Account Type</label>
+          <select id="account-type" class="form-select">
+            <option value="momo">Mobile Money</option>
+            <option value="bank">Bank Account</option>
+            <option value="cash">Cash</option>
+            <option value="savings">Savings / Susu</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="form-group" id="bank-name-group">
+          <label>Bank Name</label>
+          <select id="account-bank" class="form-select">
+            <option value="">Select Bank</option>
+            <option value="GCB Bank">GCB Bank</option>
+            <option value="Ecobank Ghana">Ecobank Ghana</option>
+            <option value="Fidelity Bank">Fidelity Bank</option>
+            <option value="CalBank">CalBank</option>
+            <option value="Absa Ghana">Absa Ghana</option>
+            <option value="Stanbic Bank">Stanbic Bank</option>
+            <option value="Access Bank">Access Bank</option>
+            <option value="Republic Bank">Republic Bank</option>
+            <option value="Zenith Bank">Zenith Bank</option>
+            <option value="UBA Ghana">UBA Ghana</option>
+            <option value="GTBank">GTBank</option>
+            <option value="Standard Chartered">Standard Chartered</option>
+            <option value="Consolidated Bank (CBG)">Consolidated Bank (CBG)</option>
+            <option value="Prudential Bank">Prudential Bank</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Starting Balance (GH₵)</label>
+          <input type="number" id="account-balance" class="form-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="form-group">
+          <label>Account Color</label>
+          <div class="color-picker" id="account-color-picker">
+            <button class="color-option active" data-color="#F5C518" style="background:#F5C518"></button>
+            <button class="color-option" data-color="#22C55E" style="background:#22C55E"></button>
+            <button class="color-option" data-color="#3B82F6" style="background:#3B82F6"></button>
+            <button class="color-option" data-color="#EF4444" style="background:#EF4444"></button>
+            <button class="color-option" data-color="#A855F7" style="background:#A855F7"></button>
+            <button class="color-option" data-color="#F97316" style="background:#F97316"></button>
+            <button class="color-option" data-color="#EC4899" style="background:#EC4899"></button>
+            <button class="color-option" data-color="#14B8A6" style="background:#14B8A6"></button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Notes (optional)</label>
+          <input type="text" id="account-notes" class="form-input" placeholder="Any notes..." />
+        </div>
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PAY NOW MODAL (pay a pay-later entry) -->
+  <div id="paynow-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title">Pay Now</span>
+        <button class="modal-save" id="paynow-save-btn">Confirm</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="paynow-paylater-id" value="" />
+        <div class="paynow-summary" id="paynow-summary"></div>
+        <div class="form-group">
+          <label>Pay From Account</label>
+          <select id="paynow-account" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Amount Paid (GH₵)</label>
+          <input type="number" id="paynow-amount" class="form-input"
+                 step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="form-group">
+          <label>Date Paid</label>
+          <input type="datetime-local" id="paynow-date" class="form-input" />
+        </div>
+        <div class="form-group">
+          <label>Note (optional)</label>
+          <input type="text" id="paynow-note" class="form-input" placeholder="Payment note..." />
+        </div>
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- BUDGET MODAL -->
+  <div id="budget-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title" id="budget-modal-title">Set Budget</span>
+        <button class="modal-save" id="budget-save-btn">Save</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="budget-id" value="" />
+        <div class="form-group" id="budget-category-group">
+          <label>Category</label>
+          <select id="budget-category" class="form-select"></select>
+        </div>
+        <div class="form-group">
+          <label>Budget Amount (GH₵)</label>
+          <input type="number" id="budget-amount" class="form-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GOAL MODAL -->
+  <div id="goal-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title" id="goal-modal-title">New Goal</span>
+        <button class="modal-save" id="goal-save-btn">Save</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="goal-id" value="" />
+        <div class="form-group">
+          <label>Goal Name</label>
+          <input type="text" id="goal-name" class="form-input"
+                 placeholder="e.g. New Phone, Emergency Fund" />
+        </div>
+        <div class="form-group">
+          <label>Target Amount (GH₵)</label>
+          <input type="number" id="goal-target" class="form-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="form-group">
+          <label>Current Savings (GH₵)</label>
+          <input type="number" id="goal-current" class="form-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="form-group">
+          <label>Target Date (optional)</label>
+          <input type="date" id="goal-date" class="form-input" />
+        </div>
+        <div class="form-group">
+          <label>Linked Account (optional)</label>
+          <select id="goal-account" class="form-select">
+            <option value="">None</option>
+          </select>
+        </div>
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- DEBT MODAL -->
+  <div id="debt-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title" id="debt-modal-title">Add Debt</span>
+        <button class="modal-save" id="debt-save-btn">Save</button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="debt-id" value="" />
+        <input type="hidden" id="debt-type" value="owe" />
+        <div class="form-group">
+          <label id="debt-person-label">Who do you owe?</label>
+          <input type="text" id="debt-person" class="form-input"
+                 placeholder="Person or company name" />
+        </div>
+        <div class="form-group">
+          <label>Original Amount (GH₵)</label>
+          <input type="number" id="debt-amount" class="form-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="form-group">
+          <label>Amount Remaining (GH₵)</label>
+          <input type="number" id="debt-remaining" class="form-input"
+                 placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
+        </div>
+        <div class="form-group">
+          <label>Due Date (optional)</label>
+          <input type="date" id="debt-due" class="form-input" />
+        </div>
+        <div class="form-group">
+          <label>Note (optional)</label>
+          <input type="text" id="debt-note" class="form-input" placeholder="Details..." />
+        </div>
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONFIRM DIALOG -->
+  <div id="confirm-dialog" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="confirm-box">
+      <div class="confirm-title" id="confirm-title">Are you sure?</div>
+      <div class="confirm-message" id="confirm-message"></div>
+      <div class="confirm-actions">
+        <button class="btn-ghost" id="confirm-cancel">Cancel</button>
+        <button class="btn-danger" id="confirm-ok">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOAST NOTIFICATION -->
+  <div id="toast" class="toast hidden"></div>
+
+  <!-- SCRIPTS -->
+  <script src="js/utils.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/accounts.js"></script>
+  <script src="js/transactions.js"></script>
+  <script src="js/dashboard.js"></script>
+  <script src="js/stats.js"></script>
+  <script src="js/budgets.js"></script>
+  <script src="js/goals.js"></script>
+  <script src="js/debts.js"></script>
+  <script src="js/search.js"></script>
+  <script src="js/settings.js"></script>
+  <script src="js/export.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
