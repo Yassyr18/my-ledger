@@ -159,9 +159,10 @@ function getSetting(key, defaultVal) {
 }
 
 function setSetting(key, value) {
-  const s  = getSettings();
-  s[key]   = value;
+  const s = getSettings();
+  s[key]  = value;
   saveSettings(s);
+  triggerSettingsSync();
 }
 
 // ============================================
@@ -178,6 +179,7 @@ function setBalanceVisibility(key, visible) {
   const vis = getBalanceVisibility();
   vis[key]  = visible;
   localStorage.setItem('ml_balance_vis', JSON.stringify(vis));
+  triggerSettingsSync();
 }
 
 function isBalanceVisible(key) {
@@ -261,10 +263,12 @@ function getIncomeCategories() {
 
 function saveExpenseCategories(cats) {
   localStorage.setItem('ml_expense_cats', JSON.stringify(cats));
+  triggerSettingsSync();
 }
 
 function saveIncomeCategories(cats) {
   localStorage.setItem('ml_income_cats', JSON.stringify(cats));
+  triggerSettingsSync();
 }
 
 // Smart ordering: sort by usage frequency
@@ -324,6 +328,7 @@ function getVendorPresets() {
 
 function saveVendorPresets(vendors) {
   localStorage.setItem('ml_vendors', JSON.stringify(vendors));
+  triggerSettingsSync();
 }
 
 function getSortedVendors() {
@@ -416,6 +421,7 @@ function getSavingsAccountIds() {
 
 function setSavingsAccountIds(ids) {
   localStorage.setItem('ml_savings_accounts', JSON.stringify(ids));
+  triggerSettingsSync();
 }
 
 function isAccountSavings(accountId) {
@@ -431,6 +437,7 @@ function getExcludedAccountIds() {
 
 function setExcludedAccountIds(ids) {
   localStorage.setItem('ml_excluded_accounts', JSON.stringify(ids));
+  triggerSettingsSync();
 }
 
 function isAccountExcluded(accountId) {
@@ -713,4 +720,17 @@ function escapeHTML(str) {
 
 function maskBalance(amount, key = 'total') {
   return maskedOrReal(amount, key);
+}
+// ============================================
+// TRIGGER SETTINGS SYNC (after any preference change)
+// ============================================
+
+function triggerSettingsSync() {
+  if (typeof syncSettings === 'function') {
+    // Debounce to avoid rapid-fire syncs
+    if (window._settingsSyncTimer) clearTimeout(window._settingsSyncTimer);
+    window._settingsSyncTimer = setTimeout(() => {
+      syncSettings();
+    }, 1000);
+  }
 }
