@@ -283,10 +283,12 @@ function openCategoryManager() {
               saveExpenseCategories(
                 getExpenseCategories().filter(c => c.id !== btn.dataset.id)
               );
+              triggerSettingsSync();
             } else {
               saveIncomeCategories(
                 getIncomeCategories().filter(c => c.id !== btn.dataset.id)
               );
+              triggerSettingsSync();
             }
             renderList();
             showToast('Category removed', 'default');
@@ -376,7 +378,8 @@ function openCategoryEditSheet(cat, type, onSave) {
         const existing2 = cats.find(c => c.id === cat.id);
         if (existing2) { existing2.label = label; existing2.icon = icon; }
       }
-      saveExpenseCategories(cats);
+      saveExpenseCategories(cats); 
+      triggerSettingsSync();
     } else {
       const cats = getIncomeCategories();
       if (isNew) {
@@ -386,6 +389,7 @@ function openCategoryEditSheet(cat, type, onSave) {
         if (existing2) { existing2.label = label; existing2.icon = icon; }
       }
       saveIncomeCategories(cats);
+      triggerSettingsSync();
     }
 
     close();
@@ -468,7 +472,7 @@ function openVendorManager() {
           'Delete Vendor',
           'Remove this vendor from presets?',
           () => {
-            deleteVendorPreset(btn.dataset.id);
+            deleteVendorPreset(btn.dataset.id); triggerSettingsSync();
             renderList();
             showToast('Vendor removed', 'default');
           }
@@ -531,10 +535,10 @@ function openVendorEditSheet(vendor, onSave) {
     if (!label) { showToast('Enter a name', 'error'); return; }
 
     if (isNew) {
-      const added = addVendorPreset(label);
+      const added = addVendorPreset(label); triggerSettingsSync();
       if (!added) { showToast('Vendor already exists', 'warning'); return; }
     } else {
-      updateVendorPreset(vendor.id, label);
+      updateVendorPreset(vendor.id, label); triggerSettingsSync();
     }
 
     close();
