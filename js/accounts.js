@@ -16,7 +16,6 @@ async function renderAccountCards() {
   const savingsIds = getSavingsAccountIds();
   const excluded   = getExcludedAccountIds();
 
-  // Show only non-savings accounts in the main scroll
   const mainAccounts = accounts.filter(a => !savingsIds.includes(a.id));
 
   if (mainAccounts.length === 0) {
@@ -32,20 +31,19 @@ async function renderAccountCards() {
   container.innerHTML = mainAccounts.map(acc => {
     const visKey    = `acc_${acc.id}`;
     const isVisible = isBalanceVisible(visKey);
-    const balText   = isVisible
-      ? formatCurrency(acc.balance)
-      : '••••••';
+    const balText   = isVisible ? formatCurrency(acc.balance) : '••••••';
     const isExcl    = excluded.includes(acc.id);
 
     return `
-      <div class="account-card-small"
-           data-id="${acc.id}">
+      <div class="account-card-small" data-id="${acc.id}">
         <div style="position:absolute;top:0;left:0;right:0;height:3px;
                     background:${acc.color};
                     border-radius:10px 10px 0 0"></div>
         <div class="acc-card-type">
           ${getAccountIcon(acc.type)} ${getAccountTypeLabel(acc.type)}
-          ${isExcl ? '<span style="font-size:9px;color:var(--text3)"> · excluded</span>' : ''}
+          ${isExcl
+            ? '<span style="font-size:9px;color:var(--text3)"> · excluded</span>'
+            : ''}
         </div>
         <div class="acc-card-name">${escapeHTML(acc.name)}</div>
         <div class="acc-card-balance-row">
@@ -59,8 +57,7 @@ async function renderAccountCards() {
             ${eyeIcon(isVisible)}
           </button>
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 
   // Eye toggle on cards
@@ -71,18 +68,15 @@ async function renderAccountCards() {
       const current = btn.dataset.visible === 'true';
       const next    = !current;
       setBalanceVisibility(key, next);
-      btn.dataset.visible  = next;
-      btn.title            = next ? 'Hide balance' : 'Show balance';
-      btn.innerHTML        = eyeIcon(next);
+      btn.dataset.visible = next;
+      btn.title           = next ? 'Hide balance' : 'Show balance';
+      btn.innerHTML       = eyeIcon(next);
       const balEl = btn.closest('.account-card-small')
         ?.querySelector('.acc-card-balance');
       if (balEl) {
-        const acc = mainAccounts.find(
-          a => `acc_${a.id}` === key
-        );
+        const acc = mainAccounts.find(a => `acc_${a.id}` === key);
         if (acc) balEl.textContent = next
-          ? formatCurrency(acc.balance)
-          : '••••••';
+          ? formatCurrency(acc.balance) : '••••••';
       }
       haptic('light');
     });
@@ -112,10 +106,10 @@ async function renderSavingsCard(accounts, savingsIds) {
     return;
   }
 
-  const totalSavings  = savingsAccounts.reduce((s, a) => s + a.balance, 0);
-  const visKey        = 'savings_total';
-  const isVisible     = isBalanceVisible(visKey);
-  const balText       = isVisible ? formatCurrency(totalSavings) : '••••••';
+  const totalSavings = savingsAccounts.reduce((s, a) => s + a.balance, 0);
+  const visKey       = 'savings_total';
+  const isVisible    = isBalanceVisible(visKey);
+  const balText      = isVisible ? formatCurrency(totalSavings) : '••••••';
 
   savingsContainer.innerHTML = `
     <div class="savings-card">
@@ -135,19 +129,18 @@ async function renderSavingsCard(accounts, savingsIds) {
           ${savingsAccounts.length} account${savingsAccounts.length > 1 ? 's' : ''}
         </div>
       </div>
-    </div>
-  `;
+    </div>`;
 
   show(savingsContainer);
 
-  qs('.savings-eye-btn', savingsContainer)?.addEventListener('click', (e) => {
-    e.stopPropagation();
-    const current = isBalanceVisible(visKey);
-    const next    = !current;
-    setBalanceVisibility(visKey, next);
-    renderSavingsCard(accounts, savingsIds);
-    haptic('light');
-  });
+  qs('.savings-eye-btn', savingsContainer)
+    ?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const current = isBalanceVisible(visKey);
+      setBalanceVisibility(visKey, !current);
+      renderSavingsCard(accounts, savingsIds);
+      haptic('light');
+    });
 }
 
 // ============================================
@@ -162,17 +155,10 @@ async function renderAccountsList() {
   const savingsIds = getSavingsAccountIds();
   const excluded   = getExcludedAccountIds();
 
-  // Total balance (excluding savings + excluded)
   const total = accounts
     .filter(a => !savingsIds.includes(a.id) && !excluded.includes(a.id))
     .reduce((s, a) => s + a.balance, 0);
 
-  // Total savings
-  const savingsTotal = accounts
-    .filter(a => savingsIds.includes(a.id))
-    .reduce((s, a) => s + a.balance, 0);
-
-  // Update total bar
   const totalEl = el('accounts-total-balance');
   if (totalEl) totalEl.textContent = maskBalance(total, 'acc_total');
 
@@ -187,10 +173,9 @@ async function renderAccountsList() {
   }
 
   const allTx = await getAllTransactions();
-
   container.innerHTML = '';
 
-  // Render regular accounts first, then savings
+  // Regular accounts first, then savings
   const sortedAccounts = [
     ...accounts.filter(a => !savingsIds.includes(a.id)),
     ...accounts.filter(a =>  savingsIds.includes(a.id))
@@ -210,22 +195,22 @@ async function renderAccountsList() {
 
     const totalIn = accTx
       .filter(tx =>
-        (tx.type === 'income'   && tx.accountId === acc.id) ||
+        (tx.type === 'income'   && tx.accountId  === acc.id) ||
         (tx.type === 'transfer' && tx.toAccountId === acc.id)
       )
       .reduce((s, tx) => s + tx.amount, 0);
 
     const totalOut = accTx
       .filter(tx =>
-        (tx.type === 'expense'  && tx.accountId === acc.id) ||
-        (tx.type === 'transfer' && tx.fromAccountId === acc.id)
+        (tx.type === 'expense'  && tx.accountId      === acc.id) ||
+        (tx.type === 'transfer' && tx.fromAccountId  === acc.id)
       )
       .reduce((s, tx) => s + tx.amount, 0);
 
     const card = document.createElement('div');
     card.className  = 'account-card-full';
     card.dataset.id = acc.id;
-    card.innerHTML = `
+    card.innerHTML  = `
       <div style="position:absolute;top:0;left:0;bottom:0;width:4px;
                   background:${acc.color};
                   border-radius:16px 0 0 16px"></div>
@@ -240,7 +225,8 @@ async function renderAccountsList() {
           <div class="acf-info">
             <div class="acf-name">
               ${escapeHTML(acc.name)}
-              ${isSavings ? '<span class="savings-badge">SAVINGS</span>' : ''}
+              ${isSavings
+                ? '<span class="savings-badge">SAVINGS</span>' : ''}
               ${isExcl && !isSavings
                 ? '<span class="excluded-badge">EXCLUDED</span>' : ''}
             </div>
@@ -284,50 +270,12 @@ async function renderAccountsList() {
           <span class="acf-stat-label">Transactions</span>
           <span class="acf-stat-value">${accTx.length}</span>
         </div>
-      </div>
-    `;
-        <div class="acf-actions">
-          <button class="acf-action-btn edit-acc-btn"
-                  data-id="${acc.id}">✏️</button>
-          <button class="acf-action-btn delete-acc-btn"
-                  data-id="${acc.id}">🗑️</button>
-        </div>
-      </div>
-      <div class="acf-balance-row">
-        <div class="acf-balance"
-             style="color:${acc.color}">
-          ${isVisible ? maskBalance(acc.balance, visKey) : '••••••'}
-        </div>
-        <button class="eye-btn acf-eye-btn"
-                data-vis-key="${visKey}"
-                data-visible="${isVisible}">
-          ${eyeIcon(isVisible)}
-        </button>
-      </div>
-      <div class="acf-stats">
-        <div class="acf-stat">
-          <span class="acf-stat-label">Money In</span>
-          <span class="acf-stat-value income-val">
-            +${formatCurrency(totalIn + parseAmount(acc.startingBalance || 0))}
-          </span>
-        </div>
-        <div class="acf-stat">
-          <span class="acf-stat-label">Money Out</span>
-          <span class="acf-stat-value expense-val">
-            -${formatCurrency(totalOut)}
-          </span>
-        </div>
-        <div class="acf-stat">
-          <span class="acf-stat-label">Transactions</span>
-          <span class="acf-stat-value">${accTx.length}</span>
-        </div>
-      </div>
-    `;
+      </div>`;
 
     container.appendChild(card);
   }
 
-  // Eye toggle on full cards
+  // Eye toggle
   qsa('.acf-eye-btn', container).forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -342,11 +290,8 @@ async function renderAccountsList() {
       if (balEl) {
         const accId = btn.closest('.account-card-full')?.dataset.id;
         const acc   = accounts.find(a => a.id === accId);
-        if (acc) {
-          balEl.textContent = next
-            ? formatCurrency(acc.balance)
-            : '••••••';
-        }
+        if (acc) balEl.textContent = next
+          ? formatCurrency(acc.balance) : '••••••';
       }
       haptic('light');
     });
@@ -368,7 +313,7 @@ async function renderAccountsList() {
     });
   });
 
-    // Move up buttons
+  // Move up buttons
   qsa('.move-up-btn', container).forEach(btn => {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -391,14 +336,18 @@ async function renderAccountsList() {
 
 function eyeIcon(visible) {
   if (visible) {
-    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    return `<svg viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2">
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
       <circle cx="12" cy="12" r="3"/>
     </svg>`;
   }
-  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
-    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+  return `<svg viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2">
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8
+             a18.45 18.45 0 0 1 5.06-5.94"/>
+    <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8
+             a18.5 18.5 0 0 1-2.16 3.19"/>
     <line x1="1" y1="1" x2="23" y2="23"/>
   </svg>`;
 }
@@ -408,15 +357,15 @@ function eyeIcon(visible) {
 // ============================================
 
 async function openAccountModal(accountId = null) {
-  const modal       = el('account-modal');
-  const titleEl     = el('account-modal-title');
-  const idInput     = el('account-id');
-  const nameInput   = el('account-name');
-  const typeSelect  = el('account-type');
-  const bankSelect  = el('account-bank');
-  const balInput    = el('account-balance');
-  const notesInput  = el('account-notes');
-  const bankGroup   = el('bank-name-group');
+  const modal         = el('account-modal');
+  const titleEl       = el('account-modal-title');
+  const idInput       = el('account-id');
+  const nameInput     = el('account-name');
+  const typeSelect    = el('account-type');
+  const bankSelect    = el('account-bank');
+  const balInput      = el('account-balance');
+  const notesInput    = el('account-notes');
+  const bankGroup     = el('bank-name-group');
   const savingsToggle = el('account-is-savings');
   const excludeToggle = el('account-is-excluded');
 
@@ -494,8 +443,8 @@ async function saveAccountFromModal() {
   // Get next order number for new accounts
   let nextOrder = 0;
   if (!id) {
-    const existing = await getAllAccounts();
-    nextOrder = existing.length;
+    const allExisting = await getAllAccounts();
+    nextOrder = allExisting.length;
   }
 
   const account = {
@@ -520,7 +469,7 @@ async function saveAccountFromModal() {
 
   await saveAccount(account);
 
-  // Handle savings designation
+  // Savings designation
   const savingsIds = getSavingsAccountIds();
   if (isSavingsChecked && !savingsIds.includes(account.id)) {
     savingsIds.push(account.id);
@@ -529,7 +478,7 @@ async function saveAccountFromModal() {
     setSavingsAccountIds(savingsIds.filter(i => i !== account.id));
   }
 
-  // Handle excluded designation
+  // Excluded designation
   const excluded = getExcludedAccountIds();
   if (isExcluded && !excluded.includes(account.id)) {
     excluded.push(account.id);
@@ -551,9 +500,8 @@ async function saveAccountFromModal() {
 function confirmDeleteAccount(accountId) {
   showConfirm(
     'Delete Account',
-    'This will delete the account. Your transactions will remain but won\'t be linked to it.',
+    'This will delete the account. Transactions will remain but won\'t be linked to it.',
     async () => {
-      // Remove from savings/excluded lists too
       setSavingsAccountIds(
         getSavingsAccountIds().filter(i => i !== accountId)
       );
@@ -593,7 +541,7 @@ async function populateAccountSelects() {
     if (!sel) return;
 
     const hasAll  = ['filter-account'].includes(selectId);
-    const hasNone = ['goal-account','default-expense-account',
+    const hasNone = ['goal-account', 'default-expense-account',
                      'default-income-account'].includes(selectId);
 
     const currentVal = sel.value;
@@ -603,7 +551,7 @@ async function populateAccountSelects() {
     if (hasNone) sel.innerHTML += `<option value="">None</option>`;
 
     accounts.forEach(acc => {
-      const opt = document.createElement('option');
+      const opt       = document.createElement('option');
       opt.value       = acc.id;
       opt.textContent = `${getAccountIcon(acc.type)} ${acc.name}`;
       sel.appendChild(opt);
@@ -612,13 +560,16 @@ async function populateAccountSelects() {
     if (currentVal) sel.value = currentVal;
 
     const settings = getSettings();
-    if (selectId === 'transaction-account' && settings.defaultExpenseAccount) {
+    if (selectId === 'transaction-account' &&
+        settings.defaultExpenseAccount) {
       sel.value = settings.defaultExpenseAccount;
     }
-    if (selectId === 'default-expense-account' && settings.defaultExpenseAccount) {
+    if (selectId === 'default-expense-account' &&
+        settings.defaultExpenseAccount) {
       sel.value = settings.defaultExpenseAccount;
     }
-    if (selectId === 'default-income-account' && settings.defaultIncomeAccount) {
+    if (selectId === 'default-income-account' &&
+        settings.defaultIncomeAccount) {
       sel.value = settings.defaultIncomeAccount;
     }
   });
@@ -630,8 +581,10 @@ async function populateAccountSelects() {
 
 function initAccountEvents() {
   el('account-save-btn').addEventListener('click', saveAccountFromModal);
-  qs('#account-modal .modal-close').addEventListener('click', closeAccountModal);
-  qs('#account-modal .modal-backdrop').addEventListener('click', closeAccountModal);
+  qs('#account-modal .modal-close')
+    .addEventListener('click', closeAccountModal);
+  qs('#account-modal .modal-backdrop')
+    .addEventListener('click', closeAccountModal);
   el('add-account-btn').addEventListener('click', () => openAccountModal());
 
   qsa('.color-option').forEach(opt => {
@@ -645,6 +598,7 @@ function initAccountEvents() {
     toggle('bank-name-group', el('account-type').value === 'bank');
   });
 }
+
 // ============================================
 // REORDER ACCOUNTS
 // ============================================
@@ -660,11 +614,11 @@ async function moveAccount(accountId, direction, currentOrder) {
   if (index === newIndex) return;
 
   // Swap
-  const temp = currentOrder[index];
-  currentOrder[index] = currentOrder[newIndex];
-  currentOrder[newIndex] = temp;
+  const temp              = currentOrder[index];
+  currentOrder[index]     = currentOrder[newIndex];
+  currentOrder[newIndex]  = temp;
 
-  // Update order field on all accounts
+  // Save new order to all accounts
   for (let i = 0; i < currentOrder.length; i++) {
     const acc = await getAccount(currentOrder[i].id);
     if (acc) {
