@@ -1,0 +1,726 @@
+/* ============================================
+   MY LEDGER — MAIN APP CONTROLLER
+   ============================================ */
+
+'use strict';
+
+// ============================================
+// APP STATE
+// ============================================
+
+let currentPage    = 'home';
+let previousPage   = 'home';
+let fabMenuOpen    = false;
+let appInitialized = false;
+
+// ============================================
+// STARTUP
+// ============================================
+
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    // Open database first
+    await openDB();
+
+    // Seed default accounts if first launch
+    await seedDefaultAccounts();
+
+    // Show splash for minimum 1.5 seconds
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
+    // Fade out splash
+    const splash = el('splash');
+    if (splash) {
+      splash.classList.add('fade-out');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      hide(splash);
+    }
+
+    // Check if first time
+    const hasOnboarded = getSetting('hasOnboarded', false);
+    if (!hasOnboarded) {
+      show('onboarding');
+      initOnboarding();
+      return;
+    }
+
+    // Launch app
+    await launchApp();
+
+  } catch (err) {
+    console.error('App startup error:', err);
+    showToast('Something went wrong. Please refresh.', 'error', 5000);
+  }
+});
+
+// ============================================
+// ONBOARDING
+// ============================================
+
+function initOnboarding() {
+  let slide = 0;
+  const slides  = qsa('.onboarding-slide');
+  const dots    = qsa('.onboarding-dots .dot');
+  const nextBtn = el('onboard-next');
+  const skipBtn = el('onboard-skip');
+
+  const goToSlide = (index) => {
+    // Exit current
+    slides[slide]?.classList.remove('active');
+    slides[slide]?.classList.add('exit');
+    setTimeout(() => slides[slide]?.classList.remove('exit'), 400);
+
+    slide = index;
+
+    // Enter new
+    slides[slide]?.classList.add('active');
+
+    // Update dots
+    dots.forEach((dot, i) => dot.classList.toggle('active', i === slide));
+
+    // Update button
+    if (nextBtn) {
+      nextBtn.textContent = slide === slides.length - 1
+        ? 'Get Started'
+        : 'Next';
+    }
+  };
+
+  nextBtn?.addEventListener('click', () => {
+    if (slide < slides.length - 1) {
+      goToSlide(slide + 1);
+    } else {
+      finishOnboarding();
+    }
+  });
+
+  skipBtn?.addEventListener('click', finishOnboarding);
+}
+
+async function finishOnboarding() {
+  setSetting('hasOnboarded', true);
+  hide('onboarding');
+  await launchApp();
+}
+
+// ============================================
+// LAUNCH APP
+// ============================================
+
+async function launchApp() {
+  // Check PIN
+  const pinShowing = initPinLock();
+  if (!pinShowing) {
+    show('main-app');
+  }
+
+  // Init all modules
+  initAccountEvents();
+  initTransactionEvents();
+  initTransactionFilters();
+  initPayLaterFilters();
+  initStatsEvents();
+  initBudgetEvents();
+  initGoalEvents();
+  initDebtEvents();
+  initSearch();
+  initSettings();
+  initExport();
+  initBackupRestore();
+  initNavigation();
+  initFabMenu();
+  initMoreMenu();
+  initNotifications();
+  registerServiceWorker();
+
+  // Populate account dropdowns
+  await populateAccountSelects();
+
+  // Render initial page
+  await renderDashboard();
+
+  appInitialized = true;
+
+  // Check recurring transactions
+  await checkRecurringTransactions();
+}
+
+// ============================================
+// NAVIGATION
+// ============================================
+
+function initNavigation() {
+  // Bottom nav buttons
+  qsa('.nav-btn[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.id === 'fab-add') return;
+      navigateTo(btn.dataset.page);
+    });
+  });
+
+  // Section links
+  el('go-accounts')?.addEventListener('click', () => navigateTo('accounts'));
+  el('go-transactions')?.addEventListener('click', () => navigateTo('transactions'));
+
+  // Pay later banner
+  el('view-pay-later')?.addEventListener('click', () => navigateTo('paylater'));
+
+  // More menu navigation
+  el('go-goals')?.addEventListener('click', () => navigateTo('goals'));
+  el('go-debts')?.addEventListener('click', () => navigateTo('debts'));
+  el('go-recurring')?.addEventListener('click', () => navigateTo('recurring'));
+  el('go-settings')?.addEventListener('click', () => navigateTo('settings'));
+  el('go-about')?.addEventListener('click', () => openAboutSheet());
+
+  // Back buttons
+  qsa('.back-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      navigateTo(btn.dataset.back || previousPage);
+    });
+  });
+}
+
+function navigateTo(pageId) {
+  const pageMap = {
+    home:         'page-home',
+    transactions: 'page-transactions',
+    stats:        'page-stats',
+    paylater:     'page-paylater',
+    accounts:     'page-accounts',
+    budgets:      'page-budgets',
+    more:         'page-more',
+    goals:        'page-goals',
+    debts:        'page-debts',
+    recurring:    'page-recurring',
+    settings:     'page-settings'
+  };
+
+  const targetId = pageMap[pageId];
+  if (!targetId) return;
+
+  // Get current active page
+  const currentActive = qs('.page.active');
+
+  // Update state
+  previousPage = currentPage;
+  currentPage  = pageId;
+
+  // Slide out current
+  if (currentActive) {
+    currentActive.classList.remove('active');
+    currentActive.classList.add('slide-left');
+    setTimeout(() => {
+      currentActive.classList.remove('slide-left');
+      currentActive.classList.add('hidden');
+    }, 350);
+  }
+
+  // Slide in target
+  const target = el(targetId);
+  if (target) {
+    target.classList.remove('hidden', 'slide-left');
+    requestAnimationFrame(() => {
+      target.classList.add('active');
+    });
+  }
+
+  // Update nav bar active state
+  qsa('.nav-btn[data-page]').forEach(btn => {
+    btn.classList.toggle(
+      'active',
+      btn.dataset.page === pageId
+    );
+  });
+
+  // Update page title
+  const titles = {
+    home:         'My Ledger',
+    transactions: 'Transactions',
+    stats:        'Statistics',
+    paylater:     'Pay Later',
+    accounts:     'Accounts',
+    budgets:      'Budgets',
+    more:         'More',
+    goals:        'Savings Goals',
+    debts:        'Debts & Loans',
+    recurring:    'Recurring',
+    settings:     'Settings'
+  };
+  setText('page-title', titles[pageId] || 'My Ledger');
+
+  // Render page content
+  renderPageContent(pageId);
+
+  haptic('light');
+}
+
+async function renderPageContent(pageId) {
+  switch (pageId) {
+    case 'home':
+      await renderDashboard();
+      break;
+    case 'transactions':
+      await renderAllTransactions();
+      await populateAccountSelects();
+      break;
+    case 'stats':
+      await renderStats();
+      break;
+    case 'paylater':
+      await renderPayLaterPage();
+      break;
+    case 'accounts':
+      await renderAccountsList();
+      break;
+    case 'budgets':
+      await renderBudgets();
+      break;
+    case 'goals':
+      await renderGoals();
+      break;
+    case 'debts':
+      await renderDebts();
+      break;
+    case 'recurring':
+      await renderRecurring();
+      break;
+    case 'settings':
+      await populateAccountSelects();
+      loadSettingsIntoPage();
+      break;
+  }
+}
+
+// ============================================
+// FAB MENU
+// ============================================
+
+function initFabMenu() {
+  const fabBtn  = el('fab-add');
+  const fabMenu = el('fab-menu');
+
+  fabBtn?.addEventListener('click', () => {
+    if (fabMenuOpen) {
+      closeFabMenu();
+    } else {
+      openFabMenu();
+    }
+  });
+
+  // Close on overlay tap
+  qs('.fab-overlay')?.addEventListener('click', closeFabMenu);
+}
+
+function openFabMenu() {
+  fabMenuOpen = true;
+  show('fab-menu');
+  haptic('light');
+
+  // Rotate + icon
+  const fabBtn = el('fab-add');
+  if (fabBtn) fabBtn.style.transform = 'rotate(45deg)';
+}
+
+function closeFabMenu() {
+  fabMenuOpen = false;
+  hide('fab-menu');
+
+  const fabBtn = el('fab-add');
+  if (fabBtn) fabBtn.style.transform = 'rotate(0deg)';
+}
+
+// ============================================
+// MORE MENU
+// ============================================
+
+function initMoreMenu() {
+  // Budget button (not in subpages, add to more menu)
+  const moreMenu = qs('#page-more .more-menu');
+
+  // Insert budgets button after recurring
+  const goRecurring = el('go-recurring');
+  if (goRecurring) {
+    const budgetBtn = document.createElement('button');
+    budgetBtn.className = 'more-item';
+    budgetBtn.id        = 'go-budgets';
+    budgetBtn.innerHTML = `
+      <span class="more-item-icon">🎯</span>
+      <span class="more-item-label">Budgets</span>
+      <span class="more-item-arrow">›</span>
+    `;
+    goRecurring.parentNode.insertBefore(budgetBtn, goRecurring.nextSibling);
+    budgetBtn.addEventListener('click', () => navigateTo('budgets'));
+  }
+}
+
+// ============================================
+// RECURRING TRANSACTIONS
+// ============================================
+
+async function renderRecurring() {
+  const container = el('recurring-list');
+  if (!container) return;
+
+  const recurring = await getAllRecurring();
+
+  if (recurring.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-icon">🔄</div>
+        <p>No recurring transactions</p>
+        <span>Mark a transaction as recurring when adding it</span>
+      </div>`;
+    return;
+  }
+
+  const accounts = await getAllAccounts();
+
+  container.innerHTML = recurring.map(rec => {
+    const acc    = accounts.find(a => a.id === rec.accountId);
+    const cat    = rec.type === 'income'
+      ? getCategoryById(rec.category, 'income')
+      : getCategoryById(rec.category, 'expense');
+    const isInc  = rec.type === 'income';
+    const next   = new Date(rec.nextDate);
+    const nextStr = next.toLocaleDateString('en-GH', {
+      day: 'numeric', month: 'short', year: 'numeric'
+    });
+
+    return `
+      <div class="recurring-card">
+        <div class="recurring-icon ${isInc ? 'income' : 'expense'}">
+          ${cat.icon}
+        </div>
+        <div class="recurring-info">
+          <div class="recurring-name">
+            ${escapeHTML(rec.description || cat.label)}
+          </div>
+          <div class="recurring-freq">
+            ${getFrequencyLabel(rec.frequency)}
+            ${acc ? ' · ' + escapeHTML(acc.name) : ''}
+          </div>
+        </div>
+        <div class="recurring-right">
+          <div class="recurring-amount ${isInc ? 'income' : 'expense'}"
+               style="color:${isInc ? 'var(--income)' : 'var(--expense)'}">
+            ${isInc ? '+' : '-'}${formatCurrency(rec.amount)}
+          </div>
+          <div class="recurring-next">Next: ${nextStr}</div>
+          <button class="acf-action-btn delete-recurring-btn"
+                  data-id="${rec.id}"
+                  style="margin-top:4px">🗑️</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  qsa('.delete-recurring-btn', container).forEach(btn => {
+    btn.addEventListener('click', () => {
+      showConfirm(
+        'Delete Recurring',
+        'Stop this recurring transaction?',
+        async () => {
+          await deleteRecurring(btn.dataset.id);
+          showToast('Recurring deleted', 'default');
+          await renderRecurring();
+        }
+      );
+    });
+  });
+
+  // Add recurring button
+  el('add-recurring-btn')?.addEventListener('click', () => {
+    showToast('Add a transaction and toggle "Recurring" when creating it', 'default', 3500);
+  });
+}
+
+// ============================================
+// CHECK & PROCESS RECURRING TRANSACTIONS
+// ============================================
+
+async function checkRecurringTransactions() {
+  try {
+    const recurring = await getAllRecurring();
+    const now       = new Date();
+    let   added     = 0;
+
+    for (const rec of recurring) {
+      if (!rec.active) continue;
+
+      const nextDate = new Date(rec.nextDate);
+      if (nextDate > now) continue;
+
+      // Add the transaction
+      const tx = {
+        id:          generateId(),
+        type:        rec.type,
+        amount:      rec.amount,
+        date:        nextDate.toISOString(),
+        accountId:   rec.accountId,
+        category:    rec.category,
+        description: rec.description,
+        note:        `Auto-added (${getFrequencyLabel(rec.frequency)})`,
+        recurringId: rec.id,
+        createdAt:   Date.now(),
+        updatedAt:   Date.now()
+      };
+
+      await saveTransaction(tx);
+
+      // Update next date
+      rec.nextDate = getNextDate(nextDate, rec.frequency).toISOString();
+      await saveRecurring(rec);
+      added++;
+    }
+
+    if (added > 0) {
+      showToast(
+        `${added} recurring transaction${added > 1 ? 's' : ''} added`,
+        'default',
+        3000
+      );
+      await renderDashboard();
+    }
+  } catch (err) {
+    console.error('Recurring check error:', err);
+  }
+}
+
+// ============================================
+// NOTIFICATIONS (badge on bell icon)
+// ============================================
+
+async function initNotifications() {
+  await updateNotificationBadge();
+}
+
+async function updateNotificationBadge() {
+  try {
+    const pending  = await getPendingPayLater();
+    const debts    = await getAllDebts();
+    const goals    = await getAllGoals();
+
+    let count = 0;
+
+    // Pending pay laters
+    count += pending.length;
+
+    // Overdue debts
+    const now = new Date();
+    debts.forEach(d => {
+      if (d.dueDate && new Date(d.dueDate) < now && d.status !== 'paid') {
+        count++;
+      }
+    });
+
+    // Goals near completion (>= 90%)
+    goals.forEach(g => {
+      const pct = percentage(g.current || 0, g.target || 1);
+      if (pct >= 90 && pct < 100) count++;
+    });
+
+    const badge = el('notif-badge');
+    if (badge) {
+      badge.textContent = count;
+      toggle(badge, count > 0);
+    }
+
+    // Bell button opens notifications sheet
+    el('notif-btn')?.addEventListener('click', () => {
+      openNotificationsSheet(pending, debts, goals);
+    }, { once: true });
+
+  } catch (err) {
+    console.error('Notification badge error:', err);
+  }
+}
+
+function openNotificationsSheet(pending, debts, goals) {
+  const existing = el('notif-sheet');
+  if (existing) existing.remove();
+
+  const now      = new Date();
+  const overdue  = debts.filter(d =>
+    d.dueDate && new Date(d.dueDate) < now && d.status !== 'paid'
+  );
+  const nearGoals = goals.filter(g => {
+    const pct = percentage(g.current || 0, g.target || 1);
+    return pct >= 90 && pct < 100;
+  });
+
+  const items = [
+    ...pending.map(tx => ({
+      icon:  '⏰',
+      title: `Pay Later: ${tx.description || getCategoryLabel(tx.category, 'expense')}`,
+      sub:   `GH₵ ${formatAmount(tx.amount)} pending`,
+      color: 'var(--paylater)'
+    })),
+    ...overdue.map(d => ({
+      icon:  '⚠️',
+      title: `Overdue: ${d.person}`,
+      sub:   `GH₵ ${formatAmount(d.remaining)} overdue`,
+      color: 'var(--expense)'
+    })),
+    ...nearGoals.map(g => ({
+      icon:  '🎯',
+      title: `Goal almost done: ${g.name}`,
+      sub:   `${percentage(g.current, g.target).toFixed(0)}% complete`,
+      color: 'var(--accent)'
+    }))
+  ];
+
+  const sheet = document.createElement('div');
+  sheet.id = 'notif-sheet';
+  sheet.className = 'modal';
+  sheet.innerHTML = `
+    <div class="modal-backdrop"></div>
+    <div class="modal-sheet" style="max-height:70vh">
+      <div class="modal-handle"></div>
+      <div class="modal-header">
+        <button class="modal-close">✕</button>
+        <span class="modal-title">Notifications</span>
+        <span></span>
+      </div>
+      <div class="modal-body">
+        ${items.length === 0
+          ? `<div class="empty-state">
+               <div class="empty-icon">🔔</div>
+               <p>All caught up!</p>
+               <span>No pending items</span>
+             </div>`
+          : items.map(item => `
+            <div style="display:flex;align-items:flex-start;gap:12px;
+                        padding:14px;background:var(--bg3);
+                        border-radius:var(--radius-sm);
+                        margin-bottom:8px;
+                        border-left:3px solid ${item.color}">
+              <span style="font-size:20px">${item.icon}</span>
+              <div>
+                <div style="font-size:14px;font-weight:500;
+                            margin-bottom:2px">${item.title}</div>
+                <div style="font-size:12px;color:var(--text2)">
+                  ${item.sub}
+                </div>
+              </div>
+            </div>
+          `).join('')}
+        <div class="form-bottom-space"></div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(sheet);
+
+  const close = () => {
+    sheet.remove();
+    // Re-init bell button listener
+    updateNotificationBadge();
+  };
+
+  qs('.modal-backdrop', sheet).addEventListener('click', close);
+  qs('.modal-close', sheet).addEventListener('click', close);
+}
+
+// ============================================
+// SERVICE WORKER REGISTRATION
+// ============================================
+
+function registerServiceWorker() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker
+      .register('/my-ledger/service-worker.js')
+      .then(reg => {
+        console.log('SW registered:', reg.scope);
+
+        // Check for updates
+        reg.addEventListener('updatefound', () => {
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', () => {
+            if (newWorker.state === 'installed' &&
+                navigator.serviceWorker.controller) {
+              showToast(
+                'App updated! Pull down to refresh.',
+                'default',
+                5000
+              );
+            }
+          });
+        });
+      })
+      .catch(err => console.log('SW registration failed:', err));
+  }
+}
+
+// ============================================
+// CHART.JS — LOAD DYNAMICALLY
+// ============================================
+
+(function loadChartJS() {
+  const script = document.createElement('script');
+  script.src   = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  script.async = true;
+  script.onload = () => {
+    // Chart.js loaded — set defaults
+    if (window.Chart) {
+      Chart.defaults.color          = '#9999BB';
+      Chart.defaults.font.family    = "'Inter', sans-serif";
+      Chart.defaults.animation.duration = 600;
+    }
+  };
+  document.head.appendChild(script);
+})();
+
+// ============================================
+// HANDLE APP VISIBILITY (re-check when user
+// comes back to app from background)
+// ============================================
+
+document.addEventListener('visibilitychange', async () => {
+  if (!document.hidden && appInitialized) {
+    // Update greeting (time may have changed)
+    setText('greeting', getGreeting());
+    // Check recurring
+    await checkRecurringTransactions();
+    // Refresh notifications
+    await updateNotificationBadge();
+  }
+});
+
+// ============================================
+// PREVENT DEFAULT PULL-TO-REFRESH ON IOS
+// ============================================
+
+let touchStartY = 0;
+
+document.addEventListener('touchstart', (e) => {
+  touchStartY = e.touches[0].clientY;
+}, { passive: true });
+
+document.addEventListener('touchmove', (e) => {
+  const scrollEl = e.target.closest('.page-scroll, .modal-body');
+  if (!scrollEl) return;
+
+  const touchY  = e.touches[0].clientY;
+  const scrollTop = scrollEl.scrollTop;
+
+  if (scrollTop === 0 && touchY > touchStartY) {
+    e.preventDefault();
+  }
+}, { passive: false });
+
+// ============================================
+// KEYBOARD — CLOSE MODALS ON ESCAPE
+// ============================================
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+
+  const modals = qsa('.modal:not(.hidden)');
+  if (modals.length > 0) {
+    const last = modals[modals.length - 1];
+    const closeBtn = qs('.modal-close', last);
+    if (closeBtn) closeBtn.click();
+  }
+
+  if (fabMenuOpen) closeFabMenu();
+});
