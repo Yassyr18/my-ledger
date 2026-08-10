@@ -4,10 +4,6 @@
 
 'use strict';
 
-// ============================================
-// APP STATE
-// ============================================
-
 let currentPage    = 'home';
 let previousPage   = 'home';
 let fabMenuOpen    = false;
@@ -19,16 +15,11 @@ let appInitialized = false;
 
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    // Open database first
     await openDB();
-
-    // Seed default accounts if first launch
     await seedDefaultAccounts();
 
-    // Show splash for minimum 1.5 seconds
     await new Promise(resolve => setTimeout(resolve, 1500));
 
-    // Fade out splash
     const splash = el('splash');
     if (splash) {
       splash.classList.add('fade-out');
@@ -36,7 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       hide(splash);
     }
 
-    // Check if first time
     const hasOnboarded = getSetting('hasOnboarded', false);
     if (!hasOnboarded) {
       show('onboarding');
@@ -44,7 +34,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Launch app
     await launchApp();
 
   } catch (err) {
@@ -58,40 +47,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ============================================
 
 function initOnboarding() {
-  let slide = 0;
+  let slide  = 0;
   const slides  = qsa('.onboarding-slide');
   const dots    = qsa('.onboarding-dots .dot');
   const nextBtn = el('onboard-next');
   const skipBtn = el('onboard-skip');
 
   const goToSlide = (index) => {
-    // Exit current
     slides[slide]?.classList.remove('active');
     slides[slide]?.classList.add('exit');
     setTimeout(() => slides[slide]?.classList.remove('exit'), 400);
-
     slide = index;
-
-    // Enter new
     slides[slide]?.classList.add('active');
-
-    // Update dots
     dots.forEach((dot, i) => dot.classList.toggle('active', i === slide));
-
-    // Update button
     if (nextBtn) {
       nextBtn.textContent = slide === slides.length - 1
-        ? 'Get Started'
-        : 'Next';
+        ? 'Get Started' : 'Next';
     }
   };
 
   nextBtn?.addEventListener('click', () => {
-    if (slide < slides.length - 1) {
-      goToSlide(slide + 1);
-    } else {
-      finishOnboarding();
-    }
+    if (slide < slides.length - 1) goToSlide(slide + 1);
+    else finishOnboarding();
   });
 
   skipBtn?.addEventListener('click', finishOnboarding);
@@ -108,11 +85,11 @@ async function finishOnboarding() {
 // ============================================
 
 async function launchApp() {
-  // Init all modules
   initAccountEvents();
   initTransactionEvents();
   initTransactionFilters();
   initPayLaterFilters();
+  initBulkPayLater();
   initStatsEvents();
   initBudgetEvents();
   initGoalEvents();
@@ -124,7 +101,6 @@ async function launchApp() {
   initNavigation();
   initFabMenu();
   initMoreMenu();
-  initNotifications();
   initForceSyncBtn();
   registerServiceWorker();
 
@@ -133,24 +109,15 @@ async function launchApp() {
 }
 
 async function launchMainApp() {
-  // Check PIN
   const pinShowing = initPinLock();
-  if (!pinShowing) {
-    show('main-app');
-  }
+  if (!pinShowing) show('main-app');
 
-  // Populate dropdowns
   await populateAccountSelects();
-
-  // Render home
   await renderDashboard();
 
   appInitialized = true;
 
-  // Check recurring
   await checkRecurringTransactions();
-
-  // Refresh notifications
   await updateNotificationBadge();
 }
 
@@ -159,7 +126,6 @@ async function launchMainApp() {
 // ============================================
 
 function initNavigation() {
-  // Bottom nav buttons
   qsa('.nav-btn[data-page]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.id === 'fab-add') return;
@@ -167,21 +133,15 @@ function initNavigation() {
     });
   });
 
-  // Section links
-  el('go-accounts')?.addEventListener('click', () => navigateTo('accounts'));
+  el('go-accounts')?.addEventListener('click',     () => navigateTo('accounts'));
   el('go-transactions')?.addEventListener('click', () => navigateTo('transactions'));
+  el('view-pay-later')?.addEventListener('click',  () => navigateTo('paylater'));
+  el('go-goals')?.addEventListener('click',        () => navigateTo('goals'));
+  el('go-debts')?.addEventListener('click',        () => navigateTo('debts'));
+  el('go-recurring')?.addEventListener('click',    () => navigateTo('recurring'));
+  el('go-settings')?.addEventListener('click',     () => navigateTo('settings'));
+  el('go-about')?.addEventListener('click',        () => openAboutSheet());
 
-  // Pay later banner
-  el('view-pay-later')?.addEventListener('click', () => navigateTo('paylater'));
-
-  // More menu navigation
-  el('go-goals')?.addEventListener('click', () => navigateTo('goals'));
-  el('go-debts')?.addEventListener('click', () => navigateTo('debts'));
-  el('go-recurring')?.addEventListener('click', () => navigateTo('recurring'));
-  el('go-settings')?.addEventListener('click', () => navigateTo('settings'));
-  el('go-about')?.addEventListener('click', () => openAboutSheet());
-
-  // Back buttons
   qsa('.back-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       navigateTo(btn.dataset.back || previousPage);
@@ -207,92 +167,57 @@ function navigateTo(pageId) {
   const targetId = pageMap[pageId];
   if (!targetId) return;
 
-  // Get current active page
   const currentActive = qs('.page.active');
-
-  // Update state
   previousPage = currentPage;
   currentPage  = pageId;
 
-  // Slide out current
   if (currentActive) {
     currentActive.classList.remove('active');
     currentActive.classList.add('slide-left');
     setTimeout(() => {
       currentActive.classList.remove('slide-left');
       currentActive.classList.add('hidden');
-    }, 350);
+    }, 300);
   }
 
-  // Slide in target
   const target = el(targetId);
   if (target) {
     target.classList.remove('hidden', 'slide-left');
-    requestAnimationFrame(() => {
-      target.classList.add('active');
-    });
+    requestAnimationFrame(() => target.classList.add('active'));
   }
 
-  // Update nav bar active state
   qsa('.nav-btn[data-page]').forEach(btn => {
-    btn.classList.toggle(
-      'active',
-      btn.dataset.page === pageId
-    );
+    btn.classList.toggle('active', btn.dataset.page === pageId);
   });
 
-  // Update page title
   const titles = {
-    home:         'My Ledger',
-    transactions: 'Transactions',
-    stats:        'Statistics',
-    paylater:     'Pay Later',
-    accounts:     'Accounts',
-    budgets:      'Budgets',
-    more:         'More',
-    goals:        'Savings Goals',
-    debts:        'Debts & Loans',
-    recurring:    'Recurring',
-    settings:     'Settings'
+    home: 'My Ledger', transactions: 'Transactions',
+    stats: 'Statistics', paylater: 'Pay Later',
+    accounts: 'Accounts', budgets: 'Budgets',
+    more: 'More', goals: 'Savings Goals',
+    debts: 'Debts & Loans', recurring: 'Recurring',
+    settings: 'Settings'
   };
   setText('page-title', titles[pageId] || 'My Ledger');
 
-  // Render page content
   renderPageContent(pageId);
-
   haptic('light');
 }
 
 async function renderPageContent(pageId) {
   switch (pageId) {
-    case 'home':
-      await renderDashboard();
-      break;
+    case 'home':         await renderDashboard();          break;
     case 'transactions':
       await renderAllTransactions();
       await populateAccountSelects();
       break;
-    case 'stats':
-      await renderStats();
-      break;
-    case 'paylater':
-      await renderPayLaterPage();
-      break;
-    case 'accounts':
-      await renderAccountsList();
-      break;
-    case 'budgets':
-      await renderBudgets();
-      break;
-    case 'goals':
-      await renderGoals();
-      break;
-    case 'debts':
-      await renderDebts();
-      break;
-    case 'recurring':
-      await renderRecurring();
-      break;
+    case 'stats':        await renderStats();              break;
+    case 'paylater':     await renderPayLaterPage();       break;
+    case 'accounts':     await renderAccountsList();       break;
+    case 'budgets':      await renderBudgets();            break;
+    case 'goals':        await renderGoals();              break;
+    case 'debts':        await renderDebts();              break;
+    case 'recurring':    await renderRecurring();          break;
     case 'settings':
       await populateAccountSelects();
       loadSettingsIntoPage();
@@ -309,14 +234,9 @@ function initFabMenu() {
   const fabMenu = el('fab-menu');
 
   fabBtn?.addEventListener('click', () => {
-    if (fabMenuOpen) {
-      closeFabMenu();
-    } else {
-      openFabMenu();
-    }
+    fabMenuOpen ? closeFabMenu() : openFabMenu();
   });
 
-  // Close on overlay tap
   qs('.fab-overlay')?.addEventListener('click', closeFabMenu);
 }
 
@@ -324,8 +244,6 @@ function openFabMenu() {
   fabMenuOpen = true;
   show('fab-menu');
   haptic('light');
-
-  // Rotate + icon
   const fabBtn = el('fab-add');
   if (fabBtn) fabBtn.style.transform = 'rotate(45deg)';
 }
@@ -333,7 +251,6 @@ function openFabMenu() {
 function closeFabMenu() {
   fabMenuOpen = false;
   hide('fab-menu');
-
   const fabBtn = el('fab-add');
   if (fabBtn) fabBtn.style.transform = 'rotate(0deg)';
 }
@@ -343,27 +260,22 @@ function closeFabMenu() {
 // ============================================
 
 function initMoreMenu() {
-  // Budget button (not in subpages, add to more menu)
-  const moreMenu = qs('#page-more .more-menu');
-
-  // Insert budgets button after recurring
   const goRecurring = el('go-recurring');
-  if (goRecurring) {
+  if (goRecurring && !el('go-budgets')) {
     const budgetBtn = document.createElement('button');
     budgetBtn.className = 'more-item';
     budgetBtn.id        = 'go-budgets';
     budgetBtn.innerHTML = `
       <span class="more-item-icon">🎯</span>
       <span class="more-item-label">Budgets</span>
-      <span class="more-item-arrow">›</span>
-    `;
+      <span class="more-item-arrow">›</span>`;
     goRecurring.parentNode.insertBefore(budgetBtn, goRecurring.nextSibling);
     budgetBtn.addEventListener('click', () => navigateTo('budgets'));
   }
 }
 
 // ============================================
-// RECURRING TRANSACTIONS
+// RECURRING
 // ============================================
 
 async function renderRecurring() {
@@ -385,12 +297,12 @@ async function renderRecurring() {
   const accounts = await getAllAccounts();
 
   container.innerHTML = recurring.map(rec => {
-    const acc    = accounts.find(a => a.id === rec.accountId);
-    const cat    = rec.type === 'income'
+    const acc   = accounts.find(a => a.id === rec.accountId);
+    const cat   = rec.type === 'income'
       ? getCategoryById(rec.category, 'income')
       : getCategoryById(rec.category, 'expense');
-    const isInc  = rec.type === 'income';
-    const next   = new Date(rec.nextDate);
+    const isInc = rec.type === 'income';
+    const next  = new Date(rec.nextDate);
     const nextStr = next.toLocaleDateString('en-GH', {
       day: 'numeric', month: 'short', year: 'numeric'
     });
@@ -410,7 +322,7 @@ async function renderRecurring() {
           </div>
         </div>
         <div class="recurring-right">
-          <div class="recurring-amount ${isInc ? 'income' : 'expense'}"
+          <div class="recurring-amount"
                style="color:${isInc ? 'var(--income)' : 'var(--expense)'}">
             ${isInc ? '+' : '-'}${formatCurrency(rec.amount)}
           </div>
@@ -419,8 +331,7 @@ async function renderRecurring() {
                   data-id="${rec.id}"
                   style="margin-top:4px">🗑️</button>
         </div>
-      </div>
-    `;
+      </div>`;
   }).join('');
 
   qsa('.delete-recurring-btn', container).forEach(btn => {
@@ -437,14 +348,16 @@ async function renderRecurring() {
     });
   });
 
-  // Add recurring button
   el('add-recurring-btn')?.addEventListener('click', () => {
-    showToast('Add a transaction and toggle "Recurring" when creating it', 'default', 3500);
+    showToast(
+      'Toggle "Recurring" when adding a transaction',
+      'default', 3500
+    );
   });
 }
 
 // ============================================
-// CHECK & PROCESS RECURRING TRANSACTIONS
+// CHECK RECURRING TRANSACTIONS
 // ============================================
 
 async function checkRecurringTransactions() {
@@ -455,12 +368,10 @@ async function checkRecurringTransactions() {
 
     for (const rec of recurring) {
       if (!rec.active) continue;
-
       const nextDate = new Date(rec.nextDate);
       if (nextDate > now) continue;
 
-      // Add the transaction
-      const tx = {
+      await saveTransaction({
         id:          generateId(),
         type:        rec.type,
         amount:      rec.amount,
@@ -472,11 +383,8 @@ async function checkRecurringTransactions() {
         recurringId: rec.id,
         createdAt:   Date.now(),
         updatedAt:   Date.now()
-      };
+      });
 
-      await saveTransaction(tx);
-
-      // Update next date
       rec.nextDate = getNextDate(nextDate, rec.frequency).toISOString();
       await saveRecurring(rec);
       added++;
@@ -485,8 +393,7 @@ async function checkRecurringTransactions() {
     if (added > 0) {
       showToast(
         `${added} recurring transaction${added > 1 ? 's' : ''} added`,
-        'default',
-        3000
+        'default', 3000
       );
       await renderDashboard();
     }
@@ -496,7 +403,7 @@ async function checkRecurringTransactions() {
 }
 
 // ============================================
-// NOTIFICATIONS (badge on bell icon)
+// NOTIFICATIONS
 // ============================================
 
 async function initNotifications() {
@@ -505,24 +412,18 @@ async function initNotifications() {
 
 async function updateNotificationBadge() {
   try {
-    const pending  = await getPendingPayLater();
-    const debts    = await getAllDebts();
-    const goals    = await getAllGoals();
+    const [pending, debts, goals] = await Promise.all([
+      getPendingPayLater(), getAllDebts(), getAllGoals()
+    ]);
 
-    let count = 0;
+    let count = pending.length;
 
-    // Pending pay laters
-    count += pending.length;
-
-    // Overdue debts
     const now = new Date();
     debts.forEach(d => {
-      if (d.dueDate && new Date(d.dueDate) < now && d.status !== 'paid') {
+      if (d.dueDate && new Date(d.dueDate) < now && d.status !== 'paid')
         count++;
-      }
     });
 
-    // Goals near completion (>= 90%)
     goals.forEach(g => {
       const pct = percentage(g.current || 0, g.target || 1);
       if (pct >= 90 && pct < 100) count++;
@@ -534,7 +435,6 @@ async function updateNotificationBadge() {
       toggle(badge, count > 0);
     }
 
-    // Bell button opens notifications sheet
     el('notif-btn')?.addEventListener('click', () => {
       openNotificationsSheet(pending, debts, goals);
     }, { once: true });
@@ -560,7 +460,8 @@ function openNotificationsSheet(pending, debts, goals) {
   const items = [
     ...pending.map(tx => ({
       icon:  '⏰',
-      title: `Pay Later: ${tx.description || getCategoryLabel(tx.category, 'expense')}`,
+      title: `Pay Later: ${tx.description ||
+              getCategoryLabel(tx.category, 'expense')}`,
       sub:   `GH₵ ${formatAmount(tx.amount)} pending`,
       color: 'var(--paylater)'
     })),
@@ -579,7 +480,7 @@ function openNotificationsSheet(pending, debts, goals) {
   ];
 
   const sheet = document.createElement('div');
-  sheet.id = 'notif-sheet';
+  sheet.id    = 'notif-sheet';
   sheet.className = 'modal';
   sheet.innerHTML = `
     <div class="modal-backdrop"></div>
@@ -611,18 +512,15 @@ function openNotificationsSheet(pending, debts, goals) {
                   ${item.sub}
                 </div>
               </div>
-            </div>
-          `).join('')}
+            </div>`).join('')}
         <div class="form-bottom-space"></div>
       </div>
-    </div>
-  `;
+    </div>`;
 
   document.body.appendChild(sheet);
 
   const close = () => {
     sheet.remove();
-    // Re-init bell button listener
     updateNotificationBadge();
   };
 
@@ -631,7 +529,24 @@ function openNotificationsSheet(pending, debts, goals) {
 }
 
 // ============================================
-// SERVICE WORKER REGISTRATION
+// REFRESH BUTTON
+// ============================================
+
+function initRefreshButton() {
+  const btn = el('refresh-btn');
+  if (!btn) return;
+
+  btn.addEventListener('click', async () => {
+    btn.classList.add('spinning');
+    haptic('medium');
+    await refreshAll();
+    setTimeout(() => btn.classList.remove('spinning'), 600);
+    showToast('Refreshed ✓', 'success', 1500);
+  });
+}
+
+// ============================================
+// SERVICE WORKER
 // ============================================
 
 function registerServiceWorker() {
@@ -640,63 +555,52 @@ function registerServiceWorker() {
       .register('/my-ledger/service-worker.js')
       .then(reg => {
         console.log('SW registered:', reg.scope);
-
-        // Check for updates
         reg.addEventListener('updatefound', () => {
           const newWorker = reg.installing;
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' &&
                 navigator.serviceWorker.controller) {
-              showToast(
-                'App updated! Pull down to refresh.',
-                'default',
-                5000
-              );
+              showToast('App updated! Pull to refresh.', 'default', 5000);
             }
           });
         });
       })
-      .catch(err => console.log('SW registration failed:', err));
+      .catch(err => console.log('SW failed:', err));
   }
 }
 
 // ============================================
-// CHART.JS — LOAD DYNAMICALLY
+// CHART.JS
 // ============================================
 
 (function loadChartJS() {
-  const script = document.createElement('script');
-  script.src   = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
-  script.async = true;
+  const script  = document.createElement('script');
+  script.src    = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js';
+  script.async  = true;
   script.onload = () => {
-    // Chart.js loaded — set defaults
     if (window.Chart) {
       Chart.defaults.color          = '#9999BB';
       Chart.defaults.font.family    = "'Inter', sans-serif";
-      Chart.defaults.animation.duration = 600;
+      Chart.defaults.animation.duration = 400;
     }
   };
   document.head.appendChild(script);
 })();
 
 // ============================================
-// HANDLE APP VISIBILITY (re-check when user
-// comes back to app from background)
+// VISIBILITY CHANGE
 // ============================================
 
 document.addEventListener('visibilitychange', async () => {
   if (!document.hidden && appInitialized) {
-    // Update greeting (time may have changed)
     setText('greeting', getGreeting());
-    // Check recurring
     await checkRecurringTransactions();
-    // Refresh notifications
     await updateNotificationBadge();
   }
 });
 
 // ============================================
-// PREVENT DEFAULT PULL-TO-REFRESH ON IOS
+// PREVENT PULL-TO-REFRESH
 // ============================================
 
 let touchStartY = 0;
@@ -706,30 +610,24 @@ document.addEventListener('touchstart', (e) => {
 }, { passive: true });
 
 document.addEventListener('touchmove', (e) => {
-  const scrollEl = e.target.closest('.page-scroll, .modal-body');
+  const scrollEl  = e.target.closest('.page-scroll, .modal-body');
   if (!scrollEl) return;
-
-  const touchY  = e.touches[0].clientY;
+  const touchY    = e.touches[0].clientY;
   const scrollTop = scrollEl.scrollTop;
-
-  if (scrollTop === 0 && touchY > touchStartY) {
-    e.preventDefault();
-  }
+  if (scrollTop === 0 && touchY > touchStartY) e.preventDefault();
 }, { passive: false });
 
 // ============================================
-// KEYBOARD — CLOSE MODALS ON ESCAPE
+// ESCAPE KEY
 // ============================================
 
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-
   const modals = qsa('.modal:not(.hidden)');
   if (modals.length > 0) {
-    const last = modals[modals.length - 1];
+    const last     = modals[modals.length - 1];
     const closeBtn = qs('.modal-close', last);
     if (closeBtn) closeBtn.click();
   }
-
   if (fabMenuOpen) closeFabMenu();
 });
