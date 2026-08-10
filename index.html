@@ -42,7 +42,7 @@
         <div class="onboarding-slide" data-slide="2">
           <div class="onboard-icon">🔒</div>
           <h2>Fully Private</h2>
-          <p>Your data never leaves your phone. No internet needed.</p>
+          <p>Your data is backed up to the cloud automatically.</p>
         </div>
         <div class="onboarding-slide" data-slide="3">
           <div class="onboard-icon">⏰</div>
@@ -92,7 +92,7 @@
       </div>
     </div>
 
-    <!-- MAIN APP (shown after PIN / if no PIN set) -->
+    <!-- MAIN APP -->
     <div id="main-app" class="hidden">
 
       <!-- TOP BAR -->
@@ -101,9 +101,38 @@
           <span id="page-title">My Ledger</span>
         </div>
         <div class="top-bar-right">
+          <!-- SYNC STATUS -->
+          <div id="sync-status" title="Sync status">
+            <svg id="sync-icon-ok" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 style="width:18px;height:18px;color:var(--income);display:none">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+            <svg id="sync-icon-pending" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 style="width:18px;height:18px;color:var(--accent);display:none">
+              <polyline points="23 4 23 10 17 10"/>
+              <polyline points="1 20 1 14 7 14"/>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10
+                       M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+            </svg>
+            <svg id="sync-icon-offline" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2"
+                 style="width:18px;height:18px;color:var(--text3);display:none">
+              <line x1="1" y1="1" x2="23" y2="23"/>
+              <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/>
+              <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
+              <path d="M10.71 5.05A16 16 0 0 1 22.56 9"/>
+              <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/>
+              <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
+              <line x1="12" y1="20" x2="12.01" y2="20"/>
+            </svg>
+          </div>
           <button class="icon-btn" id="search-toggle" aria-label="Search">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              <circle cx="11" cy="11" r="8"/>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"/>
             </svg>
           </button>
           <button class="icon-btn" id="notif-btn" aria-label="Notifications">
@@ -116,11 +145,12 @@
         </div>
       </header>
 
-      <!-- SEARCH BAR (slides down) -->
+      <!-- SEARCH BAR -->
       <div id="search-bar" class="hidden">
         <div class="search-input-wrap">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
           <input type="text" id="search-input" placeholder="Search transactions..." />
           <button id="search-close">✕</button>
@@ -134,8 +164,6 @@
         <!-- HOME PAGE -->
         <section id="page-home" class="page active">
           <div class="page-scroll">
-
-            <!-- GREETING + BALANCE -->
             <div class="hero-card">
               <div class="hero-greeting" id="greeting">Good morning, Yasir! 👋</div>
               <div class="hero-label">Total Balance</div>
@@ -147,17 +175,11 @@
               </div>
               <div class="hero-period">This month</div>
             </div>
-
-            <!-- ACCOUNT CARDS (horizontal scroll) -->
             <div class="section-header">
               <span>Accounts</span>
               <button class="section-link" id="go-accounts">See all</button>
             </div>
-            <div class="accounts-scroll" id="accounts-scroll">
-              <!-- Populated by JS -->
-            </div>
-
-            <!-- PAY LATER BANNER (shows if any pending) -->
+            <div class="accounts-scroll" id="accounts-scroll"></div>
             <div id="pay-later-banner" class="hidden">
               <div class="pay-later-banner-inner">
                 <span class="pay-later-icon">⏰</span>
@@ -168,8 +190,6 @@
                 <button class="btn-accent-small" id="view-pay-later">View</button>
               </div>
             </div>
-
-            <!-- QUICK ACTIONS -->
             <div class="quick-actions">
               <button class="qa-btn" id="qa-expense">
                 <span class="qa-icon expense-icon">↑</span>
@@ -188,8 +208,6 @@
                 <span>Pay Later</span>
               </button>
             </div>
-
-            <!-- RECENT TRANSACTIONS -->
             <div class="section-header">
               <span>Recent</span>
               <button class="section-link" id="go-transactions">See all</button>
@@ -201,13 +219,10 @@
                 <span>Tap + to add your first entry</span>
               </div>
             </div>
-
-            <!-- SPENDING INSIGHT CARD -->
             <div id="insight-card" class="insight-card hidden">
               <div class="insight-icon">💡</div>
               <div class="insight-text" id="insight-text"></div>
             </div>
-
             <div class="bottom-spacer"></div>
           </div>
         </section>
@@ -254,8 +269,6 @@
               <button class="period-btn" data-period="year">Year</button>
               <button class="period-btn" data-period="all">All Time</button>
             </div>
-
-            <!-- SUMMARY CARDS -->
             <div class="stats-summary">
               <div class="stat-card income">
                 <div class="stat-label">Income</div>
@@ -274,32 +287,23 @@
                 <div class="stat-value" id="stat-paylater">GH₵ 0.00</div>
               </div>
             </div>
-
-            <!-- SPENDING BY CATEGORY (PIE) -->
             <div class="chart-card">
               <div class="chart-title">Spending by Category</div>
               <canvas id="chart-category" width="300" height="300"></canvas>
               <div id="chart-category-legend" class="chart-legend"></div>
             </div>
-
-            <!-- INCOME VS EXPENSE (BAR) -->
             <div class="chart-card">
               <div class="chart-title">Income vs Expenses</div>
               <canvas id="chart-monthly" width="300" height="200"></canvas>
             </div>
-
-            <!-- ACCOUNT BREAKDOWN -->
             <div class="chart-card">
               <div class="chart-title">Balance by Account</div>
               <div id="account-breakdown" class="account-breakdown-list"></div>
             </div>
-
-            <!-- TOP SPENDING CATEGORIES -->
             <div class="chart-card">
               <div class="chart-title">Top Spending Categories</div>
               <div id="top-categories" class="top-categories-list"></div>
             </div>
-
             <div class="bottom-spacer"></div>
           </div>
         </section>
@@ -362,9 +366,7 @@
                   <span id="budget-left-label">GH₵ 0 left</span>
                 </div>
               </div>
-              <button class="btn-accent-small" id="set-overall-budget">
-                Set Budget
-              </button>
+              <button class="btn-accent-small" id="set-overall-budget">Set Budget</button>
             </div>
             <div class="section-header">
               <span>Category Budgets</span>
@@ -396,7 +398,6 @@
                 <span class="more-item-arrow">›</span>
               </button>
             </div>
-
             <div class="more-section-title">Data</div>
             <div class="more-menu">
               <button class="more-item" id="go-export">
@@ -410,7 +411,6 @@
                 <span class="more-item-arrow">›</span>
               </button>
             </div>
-
             <div class="more-section-title">App</div>
             <div class="more-menu">
               <button class="more-item" id="go-settings">
@@ -424,13 +424,10 @@
                 <span class="more-item-arrow">›</span>
               </button>
             </div>
-
             <div class="app-version">My Ledger v1.0.0</div>
             <div class="bottom-spacer"></div>
           </div>
         </section>
-
-        <!-- SUB PAGES (slide in from right) -->
 
         <!-- GOALS PAGE -->
         <section id="page-goals" class="page subpage hidden">
@@ -493,7 +490,6 @@
                 </div>
               </div>
             </div>
-
             <div class="settings-section-title">Security</div>
             <div class="settings-group">
               <div class="settings-item">
@@ -508,7 +504,27 @@
                 <button class="settings-edit-btn" id="change-pin-btn">Change</button>
               </div>
             </div>
-
+            <div class="settings-section-title">Sync</div>
+            <div class="settings-group">
+              <div class="settings-item">
+                <span>Cloud Sync</span>
+                <span id="sync-state-label"
+                      style="font-size:13px;color:var(--text2)">
+                  Checking...
+                </span>
+              </div>
+              <div class="settings-item">
+                <span>Last Synced</span>
+                <span id="last-synced-label"
+                      style="font-size:13px;color:var(--text2)">
+                  Never
+                </span>
+              </div>
+              <button class="settings-item" id="force-sync-btn">
+                <span>Sync Now</span>
+                <span class="more-item-arrow">›</span>
+              </button>
+            </div>
             <div class="settings-section-title">Preferences</div>
             <div class="settings-group">
               <div class="settings-item">
@@ -538,7 +554,6 @@
                 </label>
               </div>
             </div>
-
             <div class="settings-section-title">Data</div>
             <div class="settings-group">
               <button class="settings-item settings-danger" id="clear-data-btn">
@@ -546,7 +561,6 @@
                 <span class="more-item-arrow">›</span>
               </button>
             </div>
-
             <div class="bottom-spacer"></div>
           </div>
         </section>
@@ -564,34 +578,40 @@
         </button>
         <button class="nav-btn" data-page="transactions">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
-            <line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/>
-            <line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>
+            <line x1="8" y1="6" x2="21" y2="6"/>
+            <line x1="8" y1="12" x2="21" y2="12"/>
+            <line x1="8" y1="18" x2="21" y2="18"/>
+            <line x1="3" y1="6" x2="3.01" y2="6"/>
+            <line x1="3" y1="12" x2="3.01" y2="12"/>
+            <line x1="3" y1="18" x2="3.01" y2="18"/>
           </svg>
           <span>Transactions</span>
         </button>
         <button class="nav-btn nav-add-btn" id="fab-add">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
           </svg>
         </button>
         <button class="nav-btn" data-page="stats">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
+            <line x1="18" y1="20" x2="18" y2="10"/>
+            <line x1="12" y1="20" x2="12" y2="4"/>
             <line x1="6" y1="20" x2="6" y2="14"/>
           </svg>
           <span>Stats</span>
         </button>
         <button class="nav-btn" data-page="more">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>
+            <circle cx="12" cy="12" r="1"/>
+            <circle cx="19" cy="12" r="1"/>
             <circle cx="5" cy="12" r="1"/>
           </svg>
           <span>More</span>
         </button>
       </nav>
 
-      <!-- FAB MENU (pops up when + is tapped) -->
+      <!-- FAB MENU -->
       <div id="fab-menu" class="hidden">
         <div class="fab-overlay"></div>
         <div class="fab-options">
@@ -614,12 +634,10 @@
         </div>
       </div>
 
-    </div><!-- end main-app -->
+    </div>
+  </div>
 
-  </div><!-- end app -->
-
-  <!-- MODALS -->
-
+  <!-- ALL YOUR MODALS STAY EXACTLY THE SAME -->
   <!-- TRANSACTION MODAL -->
   <div id="transaction-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
@@ -633,21 +651,15 @@
       <div class="modal-body">
         <input type="hidden" id="transaction-id" value="" />
         <input type="hidden" id="transaction-type" value="expense" />
-
-        <!-- AMOUNT -->
         <div class="amount-input-wrap">
           <span class="amount-currency">GH₵</span>
           <input type="number" id="transaction-amount" class="amount-input"
                  placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
         </div>
-
-        <!-- ACCOUNT (hidden for pay later) -->
         <div class="form-group" id="account-group">
           <label>Account</label>
           <select id="transaction-account" class="form-select"></select>
         </div>
-
-        <!-- FROM / TO ACCOUNT (transfer only) -->
         <div class="form-group hidden" id="transfer-from-group">
           <label>From Account</label>
           <select id="transfer-from" class="form-select"></select>
@@ -661,48 +673,34 @@
           <input type="number" id="transfer-fee" class="form-input"
                  placeholder="0.00" step="0.01" min="0" inputmode="decimal" />
         </div>
-
-        <!-- CATEGORY -->
         <div class="form-group" id="category-group">
           <label>Category</label>
           <div class="category-grid" id="category-grid"></div>
         </div>
-
-        <!-- DESCRIPTION -->
         <div class="form-group">
           <label>Description</label>
           <input type="text" id="transaction-description" class="form-input"
                  placeholder="What was this for?" />
         </div>
-
-        <!-- VENDOR (expense/paylater) -->
         <div class="form-group" id="vendor-group">
           <label>Vendor / Person</label>
           <input type="text" id="transaction-vendor" class="form-input"
                  placeholder="e.g. Auntie Mary's Chop Bar" />
         </div>
-
-        <!-- SOURCE (income only) -->
         <div class="form-group hidden" id="source-group">
           <label>From (Person / Company)</label>
           <input type="text" id="transaction-source" class="form-input"
                  placeholder="e.g. My Boss, Client name" />
         </div>
-
-        <!-- DATE -->
         <div class="form-group">
           <label>Date & Time</label>
           <input type="datetime-local" id="transaction-date" class="form-input" />
         </div>
-
-        <!-- NOTE -->
         <div class="form-group">
           <label>Note (optional)</label>
           <textarea id="transaction-note" class="form-textarea"
                     placeholder="Any extra details..."></textarea>
         </div>
-
-        <!-- NEED VS WANT (expense only) -->
         <div class="form-group" id="necessity-group">
           <label>Need or Want?</label>
           <div class="necessity-slider-wrap">
@@ -712,8 +710,6 @@
             <span>Want</span>
           </div>
         </div>
-
-        <!-- RECURRING -->
         <div class="form-group">
           <div class="form-row-toggle">
             <label>Recurring</label>
@@ -732,7 +728,6 @@
             </select>
           </div>
         </div>
-
         <div class="form-bottom-space"></div>
       </div>
     </div>
@@ -813,7 +808,7 @@
     </div>
   </div>
 
-  <!-- PAY NOW MODAL (pay a pay-later entry) -->
+  <!-- PAY NOW MODAL -->
   <div id="paynow-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-sheet">
@@ -841,7 +836,8 @@
         </div>
         <div class="form-group">
           <label>Note (optional)</label>
-          <input type="text" id="paynow-note" class="form-input" placeholder="Payment note..." />
+          <input type="text" id="paynow-note" class="form-input"
+                 placeholder="Payment note..." />
         </div>
         <div class="form-bottom-space"></div>
       </div>
@@ -950,7 +946,8 @@
         </div>
         <div class="form-group">
           <label>Note (optional)</label>
-          <input type="text" id="debt-note" class="form-input" placeholder="Details..." />
+          <input type="text" id="debt-note" class="form-input"
+                 placeholder="Details..." />
         </div>
         <div class="form-bottom-space"></div>
       </div>
@@ -970,12 +967,64 @@
     </div>
   </div>
 
-  <!-- TOAST NOTIFICATION -->
+  <!-- TOAST -->
   <div id="toast" class="toast hidden"></div>
 
-  <!-- SCRIPTS -->
+  <!-- FIREBASE (loaded before app scripts) -->
+  <script type="module">
+    import { initializeApp }
+      from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+    import { getFirestore, collection, doc,
+             setDoc, getDoc, getDocs,
+             deleteDoc, onSnapshot,
+             enableIndexedDbPersistence }
+      from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+    import { getAuth, signInAnonymously }
+      from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
+
+    const firebaseConfig = {
+      apiKey:            "AIzaSyDnqPIAoW-YMJ4GnC_frfph2TS3_gGUJ7c",
+      authDomain:        "my-ledger-155c1.firebaseapp.com",
+      projectId:         "my-ledger-155c1",
+      storageBucket:     "my-ledger-155c1.firebasestorage.app",
+      messagingSenderId: "888515315103",
+      appId:             "1:888515315103:web:63fc8ce3a808b4ad77e9aa"
+    };
+
+    const firebaseApp = initializeApp(firebaseConfig);
+    const db          = getFirestore(firebaseApp);
+    const auth        = getAuth(firebaseApp);
+
+    // Enable offline persistence
+    enableIndexedDbPersistence(db).catch(() => {});
+
+    // Sign in anonymously (silent — user never sees this)
+    const userCred  = await signInAnonymously(auth);
+    const uid       = userCred.user.uid;
+
+    // Store Firebase references globally
+    // so sync.js can use them
+    window._firebase = {
+      db,
+      auth,
+      uid,
+      collection,
+      doc,
+      setDoc,
+      getDoc,
+      getDocs,
+      deleteDoc,
+      onSnapshot
+    };
+
+    // Signal that Firebase is ready
+    window.dispatchEvent(new Event('firebase-ready'));
+  </script>
+
+  <!-- APP SCRIPTS -->
   <script src="js/utils.js"></script>
   <script src="js/db.js"></script>
+  <script src="js/sync.js"></script>
   <script src="js/accounts.js"></script>
   <script src="js/transactions.js"></script>
   <script src="js/dashboard.js"></script>
