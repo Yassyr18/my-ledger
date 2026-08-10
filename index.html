@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="My Ledger" />
@@ -14,7 +15,6 @@
 </head>
 <body>
 
-  <!-- APP WRAPPER -->
   <div id="app">
 
     <!-- SPLASH SCREEN -->
@@ -26,7 +26,28 @@
       </div>
     </div>
 
-    <!-- ONBOARDING (first time only) -->
+    <!-- SYNC LOGIN SCREEN -->
+    <div id="sync-login-screen" class="screen hidden">
+      <div class="sync-login-content">
+        <div class="splash-icon">₵</div>
+        <h2>Enable Cloud Sync</h2>
+        <p>Sign in once to sync your data across your phone and laptop.</p>
+        <button id="google-signin-btn" class="btn-google">
+          <svg viewBox="0 0 24 24" width="20" height="20">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          Sign in with Google
+        </button>
+        <button id="sync-skip-btn" class="btn-ghost-small" style="margin-top:16px">
+          Skip for now (offline only)
+        </button>
+      </div>
+    </div>
+
+    <!-- ONBOARDING -->
     <div id="onboarding" class="screen hidden">
       <div class="onboarding-content">
         <div class="onboarding-slide active" data-slide="0">
@@ -40,9 +61,9 @@
           <p>MoMo, bank, cash — see everything in one place.</p>
         </div>
         <div class="onboarding-slide" data-slide="2">
-          <div class="onboard-icon">🔒</div>
-          <h2>Fully Private</h2>
-          <p>Your data is backed up to the cloud automatically.</p>
+          <div class="onboard-icon">☁️</div>
+          <h2>Syncs Everywhere</h2>
+          <p>Your data syncs between your phone and laptop automatically.</p>
         </div>
         <div class="onboarding-slide" data-slide="3">
           <div class="onboard-icon">⏰</div>
@@ -95,14 +116,14 @@
     <!-- MAIN APP -->
     <div id="main-app" class="hidden">
 
-      <!-- TOP BAR -->
       <header id="top-bar">
         <div class="top-bar-left">
           <span id="page-title">My Ledger</span>
         </div>
         <div class="top-bar-right">
-          <!-- SYNC STATUS -->
-          <div id="sync-status" title="Sync status">
+          <div id="sync-status" style="display:flex;align-items:center;
+               padding:0 4px;cursor:pointer" id="sync-status-btn"
+               title="Sync status">
             <svg id="sync-icon-ok" viewBox="0 0 24 24" fill="none"
                  stroke="currentColor" stroke-width="2"
                  style="width:18px;height:18px;color:var(--income);display:none">
@@ -145,7 +166,6 @@
         </div>
       </header>
 
-      <!-- SEARCH BAR -->
       <div id="search-bar" class="hidden">
         <div class="search-input-wrap">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -158,7 +178,6 @@
         <div id="search-results"></div>
       </div>
 
-      <!-- PAGES -->
       <main id="pages">
 
         <!-- HOME PAGE -->
@@ -634,11 +653,10 @@
         </div>
       </div>
 
-    </div>
-  </div>
+    </div><!-- end main-app -->
+  </div><!-- end app -->
 
-  <!-- ALL YOUR MODALS STAY EXACTLY THE SAME -->
-  <!-- TRANSACTION MODAL -->
+  <!-- MODALS — all same as before -->
   <div id="transaction-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-sheet">
@@ -733,7 +751,6 @@
     </div>
   </div>
 
-  <!-- ACCOUNT MODAL -->
   <div id="account-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-sheet">
@@ -808,7 +825,6 @@
     </div>
   </div>
 
-  <!-- PAY NOW MODAL -->
   <div id="paynow-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-sheet">
@@ -844,7 +860,6 @@
     </div>
   </div>
 
-  <!-- BUDGET MODAL -->
   <div id="budget-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-sheet">
@@ -870,7 +885,6 @@
     </div>
   </div>
 
-  <!-- GOAL MODAL -->
   <div id="goal-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-sheet">
@@ -912,7 +926,6 @@
     </div>
   </div>
 
-  <!-- DEBT MODAL -->
   <div id="debt-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-sheet">
@@ -946,15 +959,13 @@
         </div>
         <div class="form-group">
           <label>Note (optional)</label>
-          <input type="text" id="debt-note" class="form-input"
-                 placeholder="Details..." />
+          <input type="text" id="debt-note" class="form-input" placeholder="Details..." />
         </div>
         <div class="form-bottom-space"></div>
       </div>
     </div>
   </div>
 
-  <!-- CONFIRM DIALOG -->
   <div id="confirm-dialog" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="confirm-box">
@@ -967,61 +978,9 @@
     </div>
   </div>
 
-  <!-- TOAST -->
   <div id="toast" class="toast hidden"></div>
 
-  <!-- FIREBASE (loaded before app scripts) -->
-  <script type="module">
-    import { initializeApp }
-      from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-    import { getFirestore, collection, doc,
-             setDoc, getDoc, getDocs,
-             deleteDoc, onSnapshot,
-             enableIndexedDbPersistence }
-      from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
-    import { getAuth, signInAnonymously }
-      from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js';
-
-    const firebaseConfig = {
-      apiKey:            "AIzaSyDnqPIAoW-YMJ4GnC_frfph2TS3_gGUJ7c",
-      authDomain:        "my-ledger-155c1.firebaseapp.com",
-      projectId:         "my-ledger-155c1",
-      storageBucket:     "my-ledger-155c1.firebasestorage.app",
-      messagingSenderId: "888515315103",
-      appId:             "1:888515315103:web:63fc8ce3a808b4ad77e9aa"
-    };
-
-    const firebaseApp = initializeApp(firebaseConfig);
-    const db          = getFirestore(firebaseApp);
-    const auth        = getAuth(firebaseApp);
-
-    // Enable offline persistence
-    enableIndexedDbPersistence(db).catch(() => {});
-
-    // Sign in anonymously (silent — user never sees this)
-    const userCred  = await signInAnonymously(auth);
-    const uid       = userCred.user.uid;
-
-    // Store Firebase references globally
-    // so sync.js can use them
-    window._firebase = {
-      db,
-      auth,
-      uid,
-      collection,
-      doc,
-      setDoc,
-      getDoc,
-      getDocs,
-      deleteDoc,
-      onSnapshot
-    };
-
-    // Signal that Firebase is ready
-    window.dispatchEvent(new Event('firebase-ready'));
-  </script>
-
-  <!-- APP SCRIPTS -->
+  <!-- APP SCRIPTS (NO Firebase module here anymore) -->
   <script src="js/utils.js"></script>
   <script src="js/db.js"></script>
   <script src="js/sync.js"></script>
