@@ -1,71 +1,208 @@
 /* ============================================
-   MY LEDGER — FIREBASE SYNC
+   MY LEDGER — FIREBASE SYNC (Google Auth)
    ============================================ */
 
 'use strict';
 
 // ============================================
-// SYNC STATE
+// FIREBASE CONFIG
 // ============================================
 
-const SYNC_STORES = [
-  'accounts',
-  'transactions',
-  'budgets',
-  'goals',
-  'debts',
-  'recurring'
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyDnqPIAoW-YMJ4GnC_frfph2TS3_gGUJ7c",
+  authDomain:        "my-ledger-155c1.firebaseapp.com",
+  projectId:         "my-ledger-155c1",
+  storageBucket:     "my-ledger-155c1.firebasestorage.app",
+  messagingSenderId: "888515315103",
+  appId:             "1:888515315103:web:63fc8ce3a808b4ad77e9aa"
+};
+
+const FIREBASE_SCRIPTS = [
+  'https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js',
+  'https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js'
 ];
 
-let syncReady     = false;
-let isSyncing     = false;
-let unsubscribers = [];
+const SYNC_STORES = [
+  'accounts', 'transactions', 'budgets',
+  'goals', 'debts', 'recurring'
+];
 
 // ============================================
-// WAIT FOR FIREBASE
+// STATE
 // ============================================
 
-function waitForFirebase() {
-  return new Promise(resolve => {
-    if (window._firebase) { resolve(window._firebase); return; }
-    window.addEventListener('firebase-ready', () => {
-      resolve(window._firebase);
-    }, { once: true });
+let _firebaseApp  = null;
+let _firestore    = null;
+let _auth         = null;
+let _currentUser  = null;
+let _syncReady    = false;
+let _unsubscribers = [];
+
+// ============================================
+// LOAD FIREBASE SCRIPTS DYNAMICALLY
+// (avoids module/CDN blocking issues)
+// ============================================
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    // Check if already loaded
+    if (document.querySelector(`script[src="${src}"]`)) {
+      resolve(); return;
+    }
+    const s   = document.createElement('script');
+    s.src     = src;
+    s.onload  = resolve;
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+async function loadFirebase() {
+  try {
+    // Load all Firebase scripts one by one
+    for (const src of FIREBASE_SCRIPTS) {
+      await loadScript(src);
+    }
+
+    // Initialize Firebase app
+    if (!firebase.apps.length) {
+      _firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
+    } else {
+      _firebaseApp = firebase.app();
+    }
+
+    _auth      = firebase.auth();
+    _firestore = firebase.firestore();
+
+    // Enable offline persistence
+    await _firestore.enablePersistence({ synchronizeTabs: true })
+      .catch(err => {
+        if (err.code === 'failed-precondition') {
+          // Multiple tabs open — persistence only works in one
+          console.warn('Firestore persistence: multiple tabs open');
+        } else if (err.code === 'unimplemented') {
+          console.warn('Firestore persistence not supported');
+        }
+      });
+
+    return true;
+  } catch (err) {
+    console.error('Firebase load error:', err);
+    return false;
+  }
+}
+
+// ============================================
+// INIT SYNC — called from app.js
+// ============================================
+
+async function initSync() {
+  setSyncStatus('pending');
+
+  // Load Firebase
+  const loaded = await loadFirebase();
+  if (!loaded) {
+    setSyncStatus('offline');
+    showToast('Sync unavailable. Running offline.', 'warning', 3000);
+    return;
+  }
+
+  // Check if already signed in
+  _auth.onAuthStateChanged(async (user) => {
+    if (user) {
+      // Already signed in
+      _currentUser = user;
+      _syncReady   = true;
+      await onSignedIn(user);
+    } else {
+      // Not signed in yet
+      // Check if user previously skipped
+      const skipped = getSetting('syncSkipped', false);
+      if (skipped) {
+        setSyncStatus('offline');
+        return;
+      }
+      // Show sign-in screen
+      showSyncLoginScreen();
+    }
   });
 }
 
 // ============================================
-// INIT SYNC
+// SIGN IN WITH GOOGLE
 // ============================================
 
-async function initSync() {
+async function signInWithGoogle() {
   try {
     setSyncStatus('pending');
-
-    const fb  = await waitForFirebase();
-    syncReady = true;
-
-    // Pull cloud → local first
-    await pullFromCloud();
-
-    // Then push any local changes → cloud
-    await pushToCloud();
-
-    // Listen for real-time changes from other devices
-    startRealtimeListeners();
-
-    setSyncStatus('ok');
-    updateLastSyncedLabel();
-
-    // Refresh UI with synced data
-    if (typeof renderDashboard === 'function') {
-      await renderDashboard();
-    }
-
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: 'select_account' });
+    const result   = await _auth.signInWithPopup(provider);
+    _currentUser   = result.user;
+    _syncReady     = true;
+    setSetting('syncSkipped', false);
+    await onSignedIn(_currentUser);
   } catch (err) {
-    console.error('Sync init error:', err);
+    console.error('Google sign-in error:', err);
     setSyncStatus('offline');
+    showToast('Sign-in failed. Running offline.', 'error', 3000);
+    hideSyncLoginScreen();
+    await launchMainApp();
   }
+}
+
+// ============================================
+// AFTER SIGN IN
+// ============================================
+
+async function onSignedIn(user) {
+  console.log('Signed in as:', user.email);
+  hideSyncLoginScreen();
+
+  // Pull from cloud first
+  await pullFromCloud();
+
+  // Push local data to cloud
+  await pushToCloud();
+
+  // Start real-time listeners
+  startRealtimeListeners();
+
+  setSyncStatus('ok');
+  setSetting('lastSynced', new Date().toISOString());
+  updateLastSyncedLabel();
+
+  // Launch or refresh app
+  if (typeof appInitialized !== 'undefined' && appInitialized) {
+    await refreshAll();
+  } else {
+    await launchMainApp();
+  }
+}
+
+// ============================================
+// SYNC LOGIN SCREEN
+// ============================================
+
+function showSyncLoginScreen() {
+  hide('splash');
+  show('sync-login-screen');
+
+  el('google-signin-btn')?.addEventListener('click', async () => {
+    await signInWithGoogle();
+  }, { once: true });
+
+  el('sync-skip-btn')?.addEventListener('click', async () => {
+    setSetting('syncSkipped', true);
+    setSyncStatus('offline');
+    hideSyncLoginScreen();
+    await launchMainApp();
+  }, { once: true });
+}
+
+function hideSyncLoginScreen() {
+  hide('sync-login-screen');
 }
 
 // ============================================
@@ -73,21 +210,27 @@ async function initSync() {
 // ============================================
 
 async function pushToCloud() {
-  if (!syncReady || !window._firebase) return;
-  if (isSyncing) return;
-
-  isSyncing = true;
-  setSyncStatus('pending');
+  if (!_syncReady || !_currentUser || !_firestore) return;
 
   try {
-    const { db, uid, doc, setDoc, collection } = window._firebase;
+    setSyncStatus('pending');
+    const uid = _currentUser.uid;
+    const db  = _firestore;
 
     for (const store of SYNC_STORES) {
       const items = await dbGetAll(store);
+      const batch = db.batch();
+
       for (const item of items) {
-        const ref = doc(db, 'users', uid, store, item.id);
-        await setDoc(ref, item, { merge: true });
+        const ref = db
+          .collection('users')
+          .doc(uid)
+          .collection(store)
+          .doc(item.id);
+        batch.set(ref, item, { merge: true });
       }
+
+      if (items.length > 0) await batch.commit();
     }
 
     setSyncStatus('ok');
@@ -97,8 +240,6 @@ async function pushToCloud() {
   } catch (err) {
     console.error('Push error:', err);
     setSyncStatus('offline');
-  } finally {
-    isSyncing = false;
   }
 }
 
@@ -107,20 +248,24 @@ async function pushToCloud() {
 // ============================================
 
 async function pullFromCloud() {
-  if (!syncReady || !window._firebase) return;
+  if (!_syncReady || !_currentUser || !_firestore) return;
 
   try {
-    const { db, uid, collection, getDocs } = window._firebase;
+    const uid = _currentUser.uid;
+    const db  = _firestore;
 
     for (const store of SYNC_STORES) {
-      const colRef   = collection(db, 'users', uid, store);
-      const snapshot = await getDocs(colRef);
+      const snapshot = await db
+        .collection('users')
+        .doc(uid)
+        .collection(store)
+        .get();
 
       for (const docSnap of snapshot.docs) {
         const cloudItem = docSnap.data();
         const localItem = await dbGet(store, cloudItem.id);
 
-        // Take whichever was updated most recently
+        // Take the most recently updated version
         if (!localItem ||
             (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
           await dbPut(store, cloudItem);
@@ -135,82 +280,77 @@ async function pullFromCloud() {
 
 // ============================================
 // REAL-TIME LISTENERS
-// (updates this device when another device
-//  saves something to Firebase)
 // ============================================
 
 function startRealtimeListeners() {
-  if (!syncReady || !window._firebase) return;
-
-  // Stop old listeners first
   stopRealtimeListeners();
 
-  const { db, uid, collection, onSnapshot } = window._firebase;
+  if (!_syncReady || !_currentUser || !_firestore) return;
+
+  const uid = _currentUser.uid;
+  const db  = _firestore;
 
   SYNC_STORES.forEach(store => {
-    const colRef = collection(db, 'users', uid, store);
+    const unsub = db
+      .collection('users')
+      .doc(uid)
+      .collection(store)
+      .onSnapshot(async (snapshot) => {
+        let changed = false;
 
-    const unsub = onSnapshot(colRef, async (snapshot) => {
-      let changed = false;
+        for (const change of snapshot.docChanges()) {
+          const cloudItem = change.doc.data();
 
-      for (const change of snapshot.docChanges()) {
-        const cloudItem = change.doc.data();
-
-        if (change.type === 'added' || change.type === 'modified') {
-          const localItem = await dbGet(store, cloudItem.id);
-
-          // Only update local if cloud version is newer
-          if (!localItem ||
-              (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
-            await dbPut(store, cloudItem);
-            changed = true;
+          if (change.type === 'added' || change.type === 'modified') {
+            const localItem = await dbGet(store, cloudItem.id);
+            if (!localItem ||
+                (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
+              await dbPut(store, cloudItem);
+              changed = true;
+            }
           }
-        }
 
-        if (change.type === 'removed') {
-          // Only delete locally if it exists
-          const localItem = await dbGet(store, change.doc.id);
-          if (localItem && localItem._deleted) {
+          if (change.type === 'removed') {
             await dbDelete(store, change.doc.id);
             changed = true;
           }
         }
-      }
 
-      // Refresh UI if anything changed
-      if (changed && typeof renderDashboard === 'function') {
-        await renderDashboard();
-        if (typeof renderAccountCards === 'function') {
+        if (changed && typeof renderDashboard === 'function') {
+          await renderDashboard();
           await renderAccountCards();
         }
-      }
 
-    }, (err) => {
-      console.error(`Listener error (${store}):`, err);
-      setSyncStatus('offline');
-    });
+      }, (err) => {
+        console.error(`Listener error (${store}):`, err);
+        setSyncStatus('offline');
+      });
 
-    unsubscribers.push(unsub);
+    _unsubscribers.push(unsub);
   });
 }
 
 function stopRealtimeListeners() {
-  unsubscribers.forEach(unsub => unsub());
-  unsubscribers = [];
+  _unsubscribers.forEach(u => u());
+  _unsubscribers = [];
 }
 
 // ============================================
-// SYNC A SINGLE ITEM
-// (called after every save/delete)
+// SYNC A SINGLE ITEM (called after every save)
 // ============================================
 
 async function syncItem(store, item) {
-  if (!syncReady || !window._firebase) return;
+  if (!_syncReady || !_currentUser || !_firestore) return;
 
   try {
-    const { db, uid, doc, setDoc } = window._firebase;
-    const ref = doc(db, 'users', uid, store, item.id);
-    await setDoc(ref, item, { merge: true });
+    const uid = _currentUser.uid;
+    await _firestore
+      .collection('users')
+      .doc(uid)
+      .collection(store)
+      .doc(item.id)
+      .set(item, { merge: true });
+
     setSyncStatus('ok');
     setSetting('lastSynced', new Date().toISOString());
     updateLastSyncedLabel();
@@ -221,53 +361,50 @@ async function syncItem(store, item) {
 }
 
 async function deleteSyncItem(store, id) {
-  if (!syncReady || !window._firebase) return;
+  if (!_syncReady || !_currentUser || !_firestore) return;
 
   try {
-    const { db, uid, doc, deleteDoc } = window._firebase;
-    const ref = doc(db, 'users', uid, store, id);
-    await deleteDoc(ref);
+    const uid = _currentUser.uid;
+    await _firestore
+      .collection('users')
+      .doc(uid)
+      .collection(store)
+      .doc(id)
+      .delete();
   } catch (err) {
     console.error(`Delete sync error (${store}):`, err);
   }
 }
 
 // ============================================
-// SYNC STATUS UI
+// STATUS UI
 // ============================================
 
 function setSyncStatus(status) {
-  const okIcon      = el('sync-icon-ok');
-  const pendingIcon = el('sync-icon-pending');
-  const offlineIcon = el('sync-icon-offline');
-  const stateLabel  = el('sync-state-label');
+  const icons = {
+    ok:      el('sync-icon-ok'),
+    pending: el('sync-icon-pending'),
+    offline: el('sync-icon-offline')
+  };
 
-  if (okIcon)      okIcon.style.display      = 'none';
-  if (pendingIcon) pendingIcon.style.display  = 'none';
-  if (offlineIcon) offlineIcon.style.display  = 'none';
+  Object.values(icons).forEach(ic => {
+    if (ic) ic.style.display = 'none';
+  });
 
-  switch (status) {
-    case 'ok':
-      if (okIcon) okIcon.style.display = 'block';
-      if (stateLabel) {
-        stateLabel.textContent = '✅ Synced';
-        stateLabel.style.color = 'var(--income)';
-      }
-      break;
-    case 'pending':
-      if (pendingIcon) pendingIcon.style.display = 'block';
-      if (stateLabel) {
-        stateLabel.textContent = '🔄 Syncing...';
-        stateLabel.style.color = 'var(--accent)';
-      }
-      break;
-    case 'offline':
-      if (offlineIcon) offlineIcon.style.display = 'block';
-      if (stateLabel) {
-        stateLabel.textContent = '📴 Offline';
-        stateLabel.style.color = 'var(--text3)';
-      }
-      break;
+  if (icons[status]) icons[status].style.display = 'block';
+
+  const label = el('sync-state-label');
+  if (!label) return;
+
+  const map = {
+    ok:      { text: '✅ Synced',     color: 'var(--income)' },
+    pending: { text: '🔄 Syncing...', color: 'var(--accent)' },
+    offline: { text: '📴 Offline',    color: 'var(--text3)'  }
+  };
+
+  if (map[status]) {
+    label.textContent  = map[status].text;
+    label.style.color  = map[status].color;
   }
 }
 
@@ -275,16 +412,11 @@ function updateLastSyncedLabel() {
   const label      = el('last-synced-label');
   if (!label) return;
   const lastSynced = getSetting('lastSynced', null);
-  if (!lastSynced) {
-    label.textContent = 'Never';
-    return;
-  }
+  if (!lastSynced) { label.textContent = 'Never'; return; }
   const d = new Date(lastSynced);
   label.textContent = d.toLocaleString('en-GH', {
-    day:    'numeric',
-    month:  'short',
-    hour:   '2-digit',
-    minute: '2-digit'
+    day: 'numeric', month: 'short',
+    hour: '2-digit', minute: '2-digit'
   });
 }
 
@@ -294,6 +426,10 @@ function updateLastSyncedLabel() {
 
 function initForceSyncBtn() {
   el('force-sync-btn')?.addEventListener('click', async () => {
+    if (!_syncReady) {
+      showToast('Not signed in. Tap sync icon to sign in.', 'warning');
+      return;
+    }
     showToast('Syncing...', 'default', 1500);
     await pushToCloud();
     await pullFromCloud();
@@ -303,15 +439,20 @@ function initForceSyncBtn() {
 }
 
 // ============================================
-// ONLINE / OFFLINE DETECTION
+// ONLINE / OFFLINE
 // ============================================
 
 window.addEventListener('online', async () => {
   showToast('Back online — syncing...', 'default', 2000);
-  await initSync();
+  if (_syncReady) {
+    await pushToCloud();
+    startRealtimeListeners();
+    setSyncStatus('ok');
+  }
 });
 
 window.addEventListener('offline', () => {
   setSyncStatus('offline');
-  showToast('You are offline. Changes saved locally.', 'warning', 3000);
+  stopRealtimeListeners();
+  showToast('Offline. Changes saved locally.', 'warning', 3000);
 });
