@@ -4,28 +4,57 @@
 
 'use strict';
 
-// ============================================
-// MAIN DASHBOARD RENDER
-// ============================================
-
 async function renderDashboard() {
   try {
-    // Greeting
     setText('greeting', getGreeting());
 
-    // Get all data
     const [accounts, transactions] = await Promise.all([
       getAllAccountsWithBalances(),
       getAllTransactions()
     ]);
 
-    // Total balance
-    const totalBal = accounts.reduce((s, a) => s + a.balance, 0);
-    setText('total-balance', maskBalance(totalBal));
+    const savingsIds = getSavingsAccountIds();
+    const excluded   = getExcludedAccountIds();
+
+    // Total balance — excludes savings and excluded accounts
+    const totalBal = accounts
+      .filter(a => !savingsIds.includes(a.id) && !excluded.includes(a.id))
+      .reduce((s, a) => s + a.balance, 0);
+
+    // Total balance eye toggle
+    const balVisKey  = 'hero_total';
+    const balVisible = isBalanceVisible(balVisKey);
+    const balEl      = el('total-balance');
+    const balEyeBtn  = el('hero-eye-btn');
+
+    if (balEl) {
+      balEl.textContent = balVisible
+        ? maskBalance(totalBal, balVisKey)
+        : '••••••';
+    }
+
+    if (balEyeBtn) {
+      balEyeBtn.innerHTML        = eyeIcon(balVisible);
+      balEyeBtn.dataset.visible  = balVisible;
+      balEyeBtn.dataset.visKey   = balVisKey;
+      balEyeBtn.onclick = () => {
+        const cur  = balEyeBtn.dataset.visible === 'true';
+        const next = !cur;
+        setBalanceVisibility(balVisKey, next);
+        balEyeBtn.dataset.visible = next;
+        balEyeBtn.innerHTML       = eyeIcon(next);
+        if (balEl) {
+          balEl.textContent = next
+            ? maskBalance(totalBal, balVisKey)
+            : '••••••';
+        }
+        haptic('light');
+      };
+    }
 
     // This month income & expense
-    const now        = new Date();
-    const monthTx    = transactions.filter(tx =>
+    const now         = new Date();
+    const monthTx     = transactions.filter(tx =>
       isSameMonth(new Date(tx.date), now)
     );
 
@@ -33,11 +62,14 @@ async function renderDashboard() {
       .filter(tx => tx.type === 'income')
       .reduce((s, tx) => s + tx.amount, 0);
 
+    // Expenses include transfer fees but not pending paylater
     const monthExpense = monthTx
-      .filter(tx => tx.type === 'expense' ||
-        (tx.type === 'paylater' && tx.status === 'paid' &&
-         isSameMonth(new Date(tx.paidAt || tx.date), now))
-      )
+      .filter(tx => tx.type === 'expense')
+      .reduce((s, tx) => s + tx.amount, 0);
+
+    // Transfers OUT this month (show in expense side)
+    const monthTransferOut = monthTx
+      .filter(tx => tx.type === 'transfer')
       .reduce((s, tx) => s + tx.amount, 0);
 
     setText('hero-income',  '↑ ' + formatCurrency(monthIncome));
@@ -49,14 +81,14 @@ async function renderDashboard() {
     // Pay later banner
     await updatePayLaterBanner();
 
-    // Recent transactions (last 10, excluding transfers between own accounts)
+    // Recent transactions
     await renderTransactionList('recent-transactions', {
-      limit: 10,
+      limit:  10,
       period: 'all'
     });
 
     // Smart insight
-    const insight = generateInsight(transactions, accounts);
+    const insight     = generateInsight(transactions, accounts);
     const insightCard = el('insight-card');
     const insightText = el('insight-text');
     if (insight && insightCard && insightText) {
