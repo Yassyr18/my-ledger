@@ -47,8 +47,8 @@ function openDB() {
       }
     };
 
-    req.onsuccess  = (e) => { _db = e.target.result; resolve(_db); };
-    req.onerror    = (e) => reject('DB Error: ' + e.target.error);
+    req.onsuccess = (e) => { _db = e.target.result; resolve(_db); };
+    req.onerror   = (e) => reject('DB Error: ' + e.target.error);
   });
 }
 
@@ -125,13 +125,13 @@ async function saveAccount(account) {
   if (!account.createdAt) account.createdAt = Date.now();
   account.updatedAt = Date.now();
   await dbPut('accounts', account);
-  syncItem('accounts', account);          // ← sync to cloud
+  if (typeof syncItem === 'function') syncItem('accounts', account);
   return account;
 }
 
 async function deleteAccount(id) {
   await dbDelete('accounts', id);
-  deleteSyncItem('accounts', id);         // ← delete from cloud
+  if (typeof deleteSyncItem === 'function') deleteSyncItem('accounts', id);
 }
 
 // ============================================
@@ -153,13 +153,13 @@ async function saveTransaction(tx) {
   if (!tx.createdAt) tx.createdAt = Date.now();
   tx.updatedAt = Date.now();
   await dbPut('transactions', tx);
-  syncItem('transactions', tx);           // ← sync to cloud
+  if (typeof syncItem === 'function') syncItem('transactions', tx);
   return tx;
 }
 
 async function deleteTransaction(id) {
   await dbDelete('transactions', id);
-  deleteSyncItem('transactions', id);     // ← delete from cloud
+  if (typeof deleteSyncItem === 'function') deleteSyncItem('transactions', id);
 }
 
 function getTransactionsByAccount(accountId) {
@@ -173,7 +173,13 @@ function getTransactionsByAccount(accountId) {
 }
 
 // ============================================
-// BALANCE CALCULATIONS
+// BALANCE CALCULATION (FIXED)
+//
+// KEY FIX: payLater entries do NOT directly
+// affect account balances. Only the settlement
+// expense transaction (created when you tap
+// "Pay Now") affects the balance.
+// This prevents the double-counting bug.
 // ============================================
 
 async function calculateAccountBalance(accountId) {
@@ -184,19 +190,42 @@ async function calculateAccountBalance(accountId) {
   let balance        = parseAmount(account.startingBalance || 0);
 
   transactions.forEach(tx => {
-    if (tx.type === 'income'   && tx.accountId === accountId)
+
+    // INCOME → adds to account
+    if (tx.type === 'income' && tx.accountId === accountId) {
       balance += parseAmount(tx.amount);
-    if (tx.type === 'expense'  && tx.accountId === accountId)
-      balance -= parseAmount(tx.amount);
-    if (tx.type === 'paylater' && tx.status === 'paid' &&
-        tx.paidAccountId === accountId)
-      balance -= parseAmount(tx.amount);
-    if (tx.type === 'transfer') {
-      if (tx.fromAccountId === accountId) balance -= parseAmount(tx.amount);
-      if (tx.toAccountId   === accountId) balance += parseAmount(tx.amount);
-      if (tx.fromAccountId === accountId && tx.fee)
-        balance -= parseAmount(tx.fee);
+      return;
     }
+
+    // EXPENSE → subtracts from account
+    // (includes the settlement expenses created
+    //  when a payLater is paid — they have
+    //  type='expense' and payLaterRef set)
+    if (tx.type === 'expense' && tx.accountId === accountId) {
+      balance -= parseAmount(tx.amount);
+      return;
+    }
+
+    // TRANSFER → subtracts from source, adds to destination
+    if (tx.type === 'transfer') {
+      if (tx.fromAccountId === accountId) {
+        balance -= parseAmount(tx.amount);
+        // Note: transfer fee is saved as a
+        // SEPARATE expense transaction, not
+        // deducted here, to avoid double-counting
+      }
+      if (tx.toAccountId === accountId) {
+        balance += parseAmount(tx.amount);
+      }
+      return;
+    }
+
+    // PAYLATER → INTENTIONALLY IGNORED here.
+    // The paylater record itself does NOT move
+    // money. Only the expense created on payment
+    // (with payLaterRef) affects the balance.
+    // This was the source of the double-count bug.
+
   });
 
   return round2(balance);
@@ -212,9 +241,65 @@ async function getAllAccountsWithBalances() {
   );
 }
 
+// Total balance excluding savings and excluded accounts
 async function getTotalBalance() {
-  const accounts = await getAllAccountsWithBalances();
-  return round2(accounts.reduce((s, a) => s + a.balance, 0));
+  const accounts  = await getAllAccountsWithBalances();
+  const excluded  = getExcludedAccountIds();
+  const savingsIds = getSavingsAccountIds();
+
+  return round2(
+    accounts
+      .filter(a => !excluded.includes(a.id) && !savingsIds.includes(a.id))
+      .reduce((s, a) => s + a.balance, 0)
+  );
+}
+
+// Total savings balance (savings accounts only)
+async function getTotalSavingsBalance() {
+  const accounts   = await getAllAccountsWithBalances();
+  const savingsIds = getSavingsAccountIds();
+  return round2(
+    accounts
+      .filter(a => savingsIds.includes(a.id))
+      .reduce((s, a) => s + a.balance, 0)
+  );
+}
+
+// Running balance for a specific account
+// (used to show balance after each transaction)
+async function getRunningBalances(accountId) {
+  const account = await getAccount(accountId);
+  if (!account) return {};
+
+  // Get all transactions for this account, sorted oldest first
+  const allTx = await getAllTransactions();
+  const accTx = allTx
+    .filter(tx =>
+      tx.accountId     === accountId ||
+      tx.fromAccountId === accountId ||
+      tx.toAccountId   === accountId
+    )
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+  let   running  = parseAmount(account.startingBalance || 0);
+  const balances = {};
+
+  accTx.forEach(tx => {
+    if (tx.type === 'income' && tx.accountId === accountId) {
+      running += parseAmount(tx.amount);
+    }
+    if (tx.type === 'expense' && tx.accountId === accountId) {
+      running -= parseAmount(tx.amount);
+    }
+    if (tx.type === 'transfer') {
+      if (tx.fromAccountId === accountId) running -= parseAmount(tx.amount);
+      if (tx.toAccountId   === accountId) running += parseAmount(tx.amount);
+    }
+    // paylater: ignored (same fix as above)
+    balances[tx.id] = round2(running);
+  });
+
+  return balances;
 }
 
 // ============================================
@@ -236,16 +321,17 @@ function getAllBudgets() {
 }
 
 async function saveBudget(budget) {
-  if (!budget.id) budget.id = generateId();
+  if (!budget.id)        budget.id        = generateId();
+  if (!budget.createdAt) budget.createdAt = Date.now();
   budget.updatedAt = Date.now();
   await dbPut('budgets', budget);
-  syncItem('budgets', budget);
+  if (typeof syncItem === 'function') syncItem('budgets', budget);
   return budget;
 }
 
 async function deleteBudget(id) {
   await dbDelete('budgets', id);
-  deleteSyncItem('budgets', id);
+  if (typeof deleteSyncItem === 'function') deleteSyncItem('budgets', id);
 }
 
 function getCurrentMonthBudgets(year, month) {
@@ -269,13 +355,13 @@ async function saveGoal(goal) {
   if (!goal.createdAt) goal.createdAt = Date.now();
   goal.updatedAt = Date.now();
   await dbPut('goals', goal);
-  syncItem('goals', goal);
+  if (typeof syncItem === 'function') syncItem('goals', goal);
   return goal;
 }
 
 async function deleteGoal(id) {
   await dbDelete('goals', id);
-  deleteSyncItem('goals', id);
+  if (typeof deleteSyncItem === 'function') deleteSyncItem('goals', id);
 }
 
 // ============================================
@@ -293,13 +379,13 @@ async function saveDebt(debt) {
   if (!debt.createdAt) debt.createdAt = Date.now();
   debt.updatedAt = Date.now();
   await dbPut('debts', debt);
-  syncItem('debts', debt);
+  if (typeof syncItem === 'function') syncItem('debts', debt);
   return debt;
 }
 
 async function deleteDebt(id) {
   await dbDelete('debts', id);
-  deleteSyncItem('debts', id);
+  if (typeof deleteSyncItem === 'function') deleteSyncItem('debts', id);
 }
 
 // ============================================
@@ -315,13 +401,13 @@ async function saveRecurring(rec) {
   if (!rec.createdAt) rec.createdAt = Date.now();
   rec.updatedAt = Date.now();
   await dbPut('recurring', rec);
-  syncItem('recurring', rec);
+  if (typeof syncItem === 'function') syncItem('recurring', rec);
   return rec;
 }
 
 async function deleteRecurring(id) {
   await dbDelete('recurring', id);
-  deleteSyncItem('recurring', id);
+  if (typeof deleteSyncItem === 'function') deleteSyncItem('recurring', id);
 }
 
 // ============================================
@@ -333,11 +419,11 @@ async function seedDefaultAccounts() {
   if (existing.length > 0) return;
 
   const defaults = [
-    { name: 'MTN MoMo 1', type: 'momo',  bankName: '', color: '#F5C518' },
-    { name: 'MTN MoMo 2', type: 'momo',  bankName: '', color: '#F97316' },
-    { name: 'CalBank',    type: 'bank',  bankName: 'CalBank', color: '#3B82F6' },
-    { name: 'GTBank',     type: 'bank',  bankName: 'GTBank',  color: '#22C55E' },
-    { name: 'Cash',       type: 'cash',  bankName: '', color: '#A855F7' }
+    { name: 'MTN MoMo 1', type: 'momo', bankName: '', color: '#F5C518' },
+    { name: 'MTN MoMo 2', type: 'momo', bankName: '', color: '#F97316' },
+    { name: 'CalBank',    type: 'bank', bankName: 'CalBank', color: '#3B82F6' },
+    { name: 'GTBank',     type: 'bank', bankName: 'GTBank',  color: '#22C55E' },
+    { name: 'Cash',       type: 'cash', bankName: '', color: '#A855F7' }
   ];
 
   for (let i = 0; i < defaults.length; i++) {
@@ -358,13 +444,16 @@ async function seedDefaultAccounts() {
 async function exportAllData() {
   const [accounts, transactions, budgets,
          goals, debts, recurring] = await Promise.all([
-    getAllAccounts(), getAllTransactions(), getAllBudgets(),
-    getAllGoals(),    getAllDebts(),        getAllRecurring()
+    getAllAccounts(),    getAllTransactions(), getAllBudgets(),
+    getAllGoals(),       getAllDebts(),        getAllRecurring()
   ]);
   return {
-    version: 1, exportedAt: new Date().toISOString(),
-    appName: 'My Ledger', settings: getSettings(),
-    accounts, transactions, budgets, goals, debts, recurring
+    version:     1,
+    exportedAt:  new Date().toISOString(),
+    appName:     'My Ledger',
+    settings:    getSettings(),
+    accounts,    transactions, budgets,
+    goals,       debts,        recurring
   };
 }
 
@@ -393,4 +482,11 @@ async function clearAllData() {
     await dbClear(store);
   }
   localStorage.removeItem('ml_settings');
+  localStorage.removeItem('ml_balance_vis');
+  localStorage.removeItem('ml_savings_accounts');
+  localStorage.removeItem('ml_excluded_accounts');
+  localStorage.removeItem('ml_expense_cats');
+  localStorage.removeItem('ml_income_cats');
+  localStorage.removeItem('ml_vendors');
+  localStorage.removeItem('ml_cat_usage');
 }
