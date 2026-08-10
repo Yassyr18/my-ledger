@@ -2348,3 +2348,49 @@ select option { background: var(--bg2); color: var(--text); }
   .page-scroll::-webkit-scrollbar-track { background: transparent; }
   .page-scroll::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 2px; }
 }
+/* ============================================
+   Z-INDEX FIX — confirm dialog above all modals
+   ============================================ */
+#confirm-dialog {
+  z-index: 9000 !important;
+}
+
+#confirm-dialog .modal-backdrop {
+  z-index: 9000;
+}
+
+#confirm-dialog .confirm-box {
+  z-index: 9001;
+}
+
+/* ============================================
+   ACCOUNT REORDER BUTTONS
+   ============================================ */
+.acf-reorder-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-right: 4px;
+}
+
+.reorder-btn {
+  width: 28px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg3);
+  color: var(--text3);
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all var(--transition);
+  padding: 0;
+  line-height: 1;
+}
+
+.reorder-btn:active {
+  background: var(--bg4);
+  color: var(--text);
+}
