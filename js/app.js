@@ -143,7 +143,12 @@ async function launchApp() {
 
   // Check recurring transactions
   await checkRecurringTransactions();
-}
+
+  // Init force sync button in settings
+  initForceSyncBtn();
+
+  // Start cloud sync (runs in background)
+  initSync();
 
 // ============================================
 // NAVIGATION
