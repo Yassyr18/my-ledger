@@ -225,23 +225,67 @@ async function renderAccountsList() {
     const card = document.createElement('div');
     card.className  = 'account-card-full';
     card.dataset.id = acc.id;
-    card.innerHTML  = `
+    card.innerHTML = `
       <div style="position:absolute;top:0;left:0;bottom:0;width:4px;
                   background:${acc.color};
                   border-radius:16px 0 0 16px"></div>
       <div class="acf-header">
-        <div class="acf-info">
-          <div class="acf-name">
-            ${escapeHTML(acc.name)}
-            ${isSavings ? '<span class="savings-badge">SAVINGS</span>' : ''}
-            ${isExcl && !isSavings
-              ? '<span class="excluded-badge">EXCLUDED</span>' : ''}
+        <div style="display:flex;align-items:flex-start;gap:8px">
+          <div class="acf-reorder-btns">
+            <button class="reorder-btn move-up-btn"
+                    data-id="${acc.id}" title="Move up">▲</button>
+            <button class="reorder-btn move-down-btn"
+                    data-id="${acc.id}" title="Move down">▼</button>
           </div>
-          <div class="acf-type">
-            ${getAccountIcon(acc.type)} ${getAccountTypeLabel(acc.type)}
-            ${acc.bankName ? ' · ' + escapeHTML(acc.bankName) : ''}
+          <div class="acf-info">
+            <div class="acf-name">
+              ${escapeHTML(acc.name)}
+              ${isSavings ? '<span class="savings-badge">SAVINGS</span>' : ''}
+              ${isExcl && !isSavings
+                ? '<span class="excluded-badge">EXCLUDED</span>' : ''}
+            </div>
+            <div class="acf-type">
+              ${getAccountIcon(acc.type)} ${getAccountTypeLabel(acc.type)}
+              ${acc.bankName ? ' · ' + escapeHTML(acc.bankName) : ''}
+            </div>
           </div>
         </div>
+        <div class="acf-actions">
+          <button class="acf-action-btn edit-acc-btn"
+                  data-id="${acc.id}">✏️</button>
+          <button class="acf-action-btn delete-acc-btn"
+                  data-id="${acc.id}">🗑️</button>
+        </div>
+      </div>
+      <div class="acf-balance-row">
+        <div class="acf-balance" style="color:${acc.color}">
+          ${isVisible ? maskBalance(acc.balance, visKey) : '••••••'}
+        </div>
+        <button class="eye-btn acf-eye-btn"
+                data-vis-key="${visKey}"
+                data-visible="${isVisible}">
+          ${eyeIcon(isVisible)}
+        </button>
+      </div>
+      <div class="acf-stats">
+        <div class="acf-stat">
+          <span class="acf-stat-label">Money In</span>
+          <span class="acf-stat-value income-val">
+            +${formatCurrency(totalIn + parseAmount(acc.startingBalance || 0))}
+          </span>
+        </div>
+        <div class="acf-stat">
+          <span class="acf-stat-label">Money Out</span>
+          <span class="acf-stat-value expense-val">
+            -${formatCurrency(totalOut)}
+          </span>
+        </div>
+        <div class="acf-stat">
+          <span class="acf-stat-label">Transactions</span>
+          <span class="acf-stat-value">${accTx.length}</span>
+        </div>
+      </div>
+    `;
         <div class="acf-actions">
           <button class="acf-action-btn edit-acc-btn"
                   data-id="${acc.id}">✏️</button>
@@ -321,6 +365,22 @@ async function renderAccountsList() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       confirmDeleteAccount(btn.dataset.id);
+    });
+  });
+
+    // Move up buttons
+  qsa('.move-up-btn', container).forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await moveAccount(btn.dataset.id, 'up', sortedAccounts);
+    });
+  });
+
+  // Move down buttons
+  qsa('.move-down-btn', container).forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await moveAccount(btn.dataset.id, 'down', sortedAccounts);
     });
   });
 }
@@ -431,6 +491,13 @@ async function saveAccountFromModal() {
     return;
   }
 
+  // Get next order number for new accounts
+  let nextOrder = 0;
+  if (!id) {
+    const existing = await getAllAccounts();
+    nextOrder = existing.length;
+  }
+
   const account = {
     id:              id || generateId(),
     name,
@@ -439,12 +506,16 @@ async function saveAccountFromModal() {
     startingBalance: balance,
     color,
     notes,
+    order:           id ? undefined : nextOrder,
     createdAt:       id ? undefined : Date.now()
   };
 
   if (id) {
     const existing = await getAccount(id);
-    if (existing) account.createdAt = existing.createdAt;
+    if (existing) {
+      account.createdAt = existing.createdAt;
+      account.order     = existing.order;
+    }
   }
 
   await saveAccount(account);
@@ -573,4 +644,36 @@ function initAccountEvents() {
   el('account-type').addEventListener('change', () => {
     toggle('bank-name-group', el('account-type').value === 'bank');
   });
+}
+// ============================================
+// REORDER ACCOUNTS
+// ============================================
+
+async function moveAccount(accountId, direction, currentOrder) {
+  const index = currentOrder.findIndex(a => a.id === accountId);
+  if (index === -1) return;
+
+  const newIndex = direction === 'up'
+    ? Math.max(0, index - 1)
+    : Math.min(currentOrder.length - 1, index + 1);
+
+  if (index === newIndex) return;
+
+  // Swap
+  const temp = currentOrder[index];
+  currentOrder[index] = currentOrder[newIndex];
+  currentOrder[newIndex] = temp;
+
+  // Update order field on all accounts
+  for (let i = 0; i < currentOrder.length; i++) {
+    const acc = await getAccount(currentOrder[i].id);
+    if (acc) {
+      acc.order = i;
+      await saveAccount(acc);
+    }
+  }
+
+  haptic('medium');
+  await renderAccountsList();
+  await renderAccountCards();
 }
