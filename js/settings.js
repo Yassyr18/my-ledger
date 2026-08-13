@@ -4,10 +4,6 @@
 
 'use strict';
 
-// ============================================
-// INIT SETTINGS
-// ============================================
-
 function initSettings() {
   loadSettingsIntoPage();
   bindSettingsEvents();
@@ -25,12 +21,15 @@ function loadSettingsIntoPage() {
   }
 
   const pesewasToggle = el('show-pesewas');
-  if (pesewasToggle) pesewasToggle.checked = settings.showPesewas !== false;
+  if (pesewasToggle) {
+    pesewasToggle.checked = settings.showPesewas !== false;
+  }
 
   const hideToggle = el('hide-balances');
-  if (hideToggle) hideToggle.checked = !!settings.hideBalances;
+  if (hideToggle) {
+    hideToggle.checked = !!settings.hideBalances;
+  }
 
-  // Theme toggle
   const themeToggle = el('theme-toggle');
   if (themeToggle) {
     themeToggle.checked = getSetting('theme', 'dark') === 'light';
@@ -43,14 +42,16 @@ function bindSettingsEvents() {
   // Name
   el('edit-name-btn')?.addEventListener('click', openEditNameSheet);
 
-  // PIN
+  // PIN toggle
   el('pin-toggle')?.addEventListener('change', function () {
     if (this.checked) {
       openSetPinSheet(() => {
         setSetting('pinEnabled', true);
         toggle('change-pin-row', true);
         showToast('PIN enabled ✓', 'success');
-      }, () => { this.checked = false; });
+      }, () => {
+        this.checked = false;
+      });
     } else {
       showConfirm(
         'Disable PIN',
@@ -73,22 +74,31 @@ function bindSettingsEvents() {
   // Show pesewas
   el('show-pesewas')?.addEventListener('change', function () {
     setSetting('showPesewas', this.checked);
-    showToast(this.checked ? 'Pesewas shown' : 'Pesewas hidden', 'default');
+    showToast(
+      this.checked ? 'Pesewas shown' : 'Pesewas hidden',
+      'default'
+    );
     refreshAll();
   });
 
   // Hide balances
   el('hide-balances')?.addEventListener('change', function () {
     setSetting('hideBalances', this.checked);
-    showToast(this.checked ? 'Balances hidden' : 'Balances visible', 'default');
+    showToast(
+      this.checked ? 'Balances hidden' : 'Balances visible',
+      'default'
+    );
     refreshAll();
   });
 
-  // Theme toggle
+  // Theme
   el('theme-toggle')?.addEventListener('change', function () {
     const theme = this.checked ? 'light' : 'dark';
     applyTheme(theme);
-    showToast(theme === 'light' ? '☀️ Light mode' : '🌙 Dark mode', 'default');
+    showToast(
+      theme === 'light' ? '☀️ Light mode' : '🌙 Dark mode',
+      'default'
+    );
   });
 
   // Default accounts
@@ -102,21 +112,19 @@ function bindSettingsEvents() {
     showToast('Default account saved ✓', 'success');
   });
 
-  // Category manager
-  el('manage-categories-btn')?.addEventListener('click', openCategoryManager);
-
-  // Vendor manager
-  el('manage-vendors-btn')?.addEventListener('click', openVendorManager);
-
-  // Account inclusion manager
-  el('manage-account-inclusion-btn')?.addEventListener('click',
-    openAccountInclusionManager);
+  // Managers
+  el('manage-categories-btn')
+    ?.addEventListener('click', openCategoryManager);
+  el('manage-vendors-btn')
+    ?.addEventListener('click', openVendorManager);
+  el('manage-account-inclusion-btn')
+    ?.addEventListener('click', openAccountInclusionManager);
 
   // Clear data
   el('clear-data-btn')?.addEventListener('click', () => {
     showConfirm(
       '⚠️ Clear All Data',
-      'This will permanently delete ALL your data. This cannot be undone!',
+      'This will permanently delete ALL your data. Cannot be undone!',
       async () => {
         await clearAllData();
         showToast('All data cleared', 'default');
@@ -124,26 +132,20 @@ function bindSettingsEvents() {
       }
     );
   });
-   
+
   // Hard refresh
   el('hard-refresh-btn')?.addEventListener('click', () => {
     showConfirm(
       'Full Refresh',
-      'This will clear the cache and reload the app. Your data is safe.',
+      'Clears the cache and reloads the app. Your data is safe.',
       async () => {
-        // Unregister service worker
         if ('serviceWorker' in navigator) {
           const regs = await navigator.serviceWorker.getRegistrations();
-          for (const reg of regs) {
-            await reg.unregister();
-          }
+          for (const reg of regs) await reg.unregister();
         }
-        // Clear all caches
         if ('caches' in window) {
           const keys = await caches.keys();
-          for (const key of keys) {
-            await caches.delete(key);
-          }
+          for (const key of keys) await caches.delete(key);
         }
         showToast('Cache cleared. Reloading...', 'default', 2000);
         setTimeout(() => location.reload(true), 2000);
@@ -151,7 +153,6 @@ function bindSettingsEvents() {
       false
     );
   });
-   
 }
 
 // ============================================
@@ -244,9 +245,10 @@ function openCategoryManager() {
 
   let activeTab = 'expense';
 
-  const close      = () => sheet.remove();
+  const close = () => sheet.remove();
+
   const renderList = () => {
-    const cats      = activeTab === 'expense'
+    const cats = activeTab === 'expense'
       ? getExpenseCategories()
       : getIncomeCategories();
     const container = el('cat-list');
@@ -281,15 +283,16 @@ function openCategoryManager() {
           () => {
             if (activeTab === 'expense') {
               saveExpenseCategories(
-                getExpenseCategories().filter(c => c.id !== btn.dataset.id)
+                getExpenseCategories()
+                  .filter(c => c.id !== btn.dataset.id)
               );
-              triggerSettingsSync();
             } else {
               saveIncomeCategories(
-                getIncomeCategories().filter(c => c.id !== btn.dataset.id)
+                getIncomeCategories()
+                  .filter(c => c.id !== btn.dataset.id)
               );
-              triggerSettingsSync();
             }
+            triggerSettingsSync();
             renderList();
             showToast('Category removed', 'default');
           }
@@ -343,8 +346,7 @@ function openCategoryEditSheet(cat, type, onSave) {
           <input type="text" id="cat-edit-icon"
                  class="form-input"
                  value="${cat ? cat.icon : ''}"
-                 placeholder="e.g. 🍕"
-                 maxlength="4" />
+                 placeholder="e.g. 🍕" maxlength="4" />
         </div>
         <div class="form-group">
           <label>Name</label>
@@ -375,23 +377,22 @@ function openCategoryEditSheet(cat, type, onSave) {
       if (isNew) {
         cats.push({ id: generateId(), label, icon });
       } else {
-        const existing2 = cats.find(c => c.id === cat.id);
-        if (existing2) { existing2.label = label; existing2.icon = icon; }
+        const found = cats.find(c => c.id === cat.id);
+        if (found) { found.label = label; found.icon = icon; }
       }
-      saveExpenseCategories(cats); 
-      triggerSettingsSync();
+      saveExpenseCategories(cats);
     } else {
       const cats = getIncomeCategories();
       if (isNew) {
         cats.push({ id: generateId(), label, icon });
       } else {
-        const existing2 = cats.find(c => c.id === cat.id);
-        if (existing2) { existing2.label = label; existing2.icon = icon; }
+        const found = cats.find(c => c.id === cat.id);
+        if (found) { found.label = label; found.icon = icon; }
       }
       saveIncomeCategories(cats);
-      triggerSettingsSync();
     }
 
+    triggerSettingsSync();
     close();
     onSave();
     showToast(isNew ? 'Category added ✓' : 'Category updated ✓', 'success');
@@ -427,7 +428,8 @@ function openVendorManager() {
 
   document.body.appendChild(sheet);
 
-  const close      = () => sheet.remove();
+  const close = () => sheet.remove();
+
   const renderList = () => {
     const vendors   = getSortedVendors();
     const container = el('vendor-list');
@@ -446,9 +448,7 @@ function openVendorManager() {
     container.innerHTML = vendors.map(v => `
       <div class="vendor-manage-item" data-id="${v.id}">
         <div class="vendor-manage-name">${escapeHTML(v.label)}</div>
-        <div class="vendor-manage-count">
-          Used ${v.useCount || 0}×
-        </div>
+        <div class="vendor-manage-count">Used ${v.useCount || 0}×</div>
         <div class="cat-manage-actions">
           <button class="acf-action-btn edit-vendor-btn"
                   data-id="${v.id}">✏️</button>
@@ -457,7 +457,6 @@ function openVendorManager() {
         </div>
       </div>`).join('');
 
-    // Edit
     qsa('.edit-vendor-btn', container).forEach(btn => {
       btn.addEventListener('click', () => {
         const vendor = vendors.find(v => v.id === btn.dataset.id);
@@ -465,14 +464,14 @@ function openVendorManager() {
       });
     });
 
-    // Delete
     qsa('.delete-vendor-btn', container).forEach(btn => {
       btn.addEventListener('click', () => {
         showConfirm(
           'Delete Vendor',
           'Remove this vendor from presets?',
           () => {
-            deleteVendorPreset(btn.dataset.id); triggerSettingsSync();
+            deleteVendorPreset(btn.dataset.id);
+            // triggerSettingsSync already called inside deleteVendorPreset
             renderList();
             showToast('Vendor removed', 'default');
           }
@@ -535,10 +534,15 @@ function openVendorEditSheet(vendor, onSave) {
     if (!label) { showToast('Enter a name', 'error'); return; }
 
     if (isNew) {
-      const added = addVendorPreset(label); triggerSettingsSync();
-      if (!added) { showToast('Vendor already exists', 'warning'); return; }
+      const added = addVendorPreset(label);
+      // triggerSettingsSync called inside addVendorPreset
+      if (!added) {
+        showToast('Vendor already exists', 'warning');
+        return;
+      }
     } else {
-      updateVendorPreset(vendor.id, label); triggerSettingsSync();
+      updateVendorPreset(vendor.id, label);
+      // triggerSettingsSync called inside updateVendorPreset
     }
 
     close();
@@ -575,17 +579,15 @@ async function openAccountInclusionManager() {
       <div class="modal-body">
         <p style="font-size:13px;color:var(--text2);
                   margin-bottom:16px;line-height:1.6">
-          Choose which accounts count toward
-          your total balance on the home screen.
-          Savings accounts are always separate.
+          Choose which accounts count toward your
+          total balance. Savings accounts are always
+          shown separately.
         </p>
-
         <div style="font-size:11px;color:var(--text3);
                     text-transform:uppercase;letter-spacing:0.5px;
                     font-weight:600;margin-bottom:8px">
           Accounts
         </div>
-
         <div class="settings-group">
           ${accounts.map(acc => {
             const isSavings  = savingsIds.includes(acc.id);
@@ -609,11 +611,10 @@ async function openAccountInclusionManager() {
               </div>`;
           }).join('')}
         </div>
-
         <p style="font-size:12px;color:var(--text3);
                   margin-top:12px;line-height:1.5">
-          Savings accounts are shown separately
-          and never counted in the main total.
+          Savings accounts are always excluded from
+          the main total and shown separately.
         </p>
         <div class="form-bottom-space"></div>
       </div>
@@ -625,23 +626,20 @@ async function openAccountInclusionManager() {
   qs('.modal-backdrop', sheet).addEventListener('click', close);
   qs('.modal-close', sheet).addEventListener('click', close);
 
-  // Handle toggles
-  qsa('.acc-include-toggle', sheet).forEach(toggle => {
-    toggle.addEventListener('change', function () {
-      const id       = this.dataset.id;
-      const excluded = getExcludedAccountIds();
+  qsa('.acc-include-toggle', sheet).forEach(toggleEl => {
+    toggleEl.addEventListener('change', function () {
+      const id  = this.dataset.id;
+      const exc = getExcludedAccountIds();
 
       if (this.checked) {
-        // Include: remove from excluded
-        setExcludedAccountIds(excluded.filter(i => i !== id));
+        setExcludedAccountIds(exc.filter(i => i !== id));
       } else {
-        // Exclude: add to excluded
-        if (!excluded.includes(id)) {
-          excluded.push(id);
-          setExcludedAccountIds(excluded);
+        if (!exc.includes(id)) {
+          exc.push(id);
+          setExcludedAccountIds(exc);
         }
       }
-
+      // setExcludedAccountIds triggers sync automatically
       haptic('light');
       renderDashboard();
     });
@@ -705,7 +703,9 @@ function openSetPinSheet(onSuccess, onCancel) {
   const titleEl  = el('set-pin-title');
 
   const updateDots = () => {
-    dots.forEach((dot, i) => dot.classList.toggle('filled', i < currentPin.length));
+    dots.forEach((dot, i) =>
+      dot.classList.toggle('filled', i < currentPin.length)
+    );
   };
 
   const reset = () => { currentPin = ''; updateDots(); };
@@ -714,7 +714,6 @@ function openSetPinSheet(onSuccess, onCancel) {
   el('set-pin-cancel').addEventListener('click', () => {
     close(); if (onCancel) onCancel();
   });
-
   qs('.modal-backdrop', sheet).addEventListener('click', () => {
     close(); if (onCancel) onCancel();
   });
@@ -748,9 +747,9 @@ function openSetPinSheet(onSuccess, onCancel) {
             show(errorEl);
             haptic('heavy');
             setTimeout(() => {
-              stage = 'enter';
-              titleEl.textContent = 'Set a PIN';
+              stage    = 'enter';
               firstPin = '';
+              titleEl.textContent = 'Set a PIN';
               reset();
               hide(errorEl);
             }, 1200);
@@ -773,8 +772,8 @@ function initPinLock() {
   hide('main-app');
 
   let enteredPin = '';
-  const dots     = qsa('#pin-screen .pin-dot');
-  const errorEl  = qs('#pin-screen .pin-error');
+  const dots   = qsa('#pin-screen .pin-dot');
+  const errorEl = qs('#pin-screen .pin-error');
 
   const updateDots = () => {
     dots.forEach((dot, i) =>
@@ -817,7 +816,7 @@ function initPinLock() {
   el('pin-forgot')?.addEventListener('click', () => {
     showConfirm(
       'Reset PIN',
-      'This will clear your PIN. You can set a new one in Settings.',
+      'This will clear your PIN.',
       () => {
         setSetting('pinEnabled', false);
         setSetting('pin', null);
@@ -888,8 +887,8 @@ function openBackupSheet() {
 
   el('backup-export-btn').addEventListener('click', async () => {
     try {
-      const data     = await exportAllData();
-      const date     = new Date().toISOString().split('T')[0];
+      const data = await exportAllData();
+      const date = new Date().toISOString().split('T')[0];
       downloadJSON(data, `my-ledger-backup-${date}.json`);
       showToast('Backup downloaded ✓', 'success');
     } catch (err) {
@@ -958,8 +957,7 @@ function openAboutSheet() {
         <p style="color:var(--text2);font-size:14px;
                   line-height:1.7;margin-bottom:16px">
           A personal finance tracker built for Ghana.
-          All your data stays on your device —
-          private, offline, and always yours.
+          Private, offline-first, syncs across devices.
         </p>
         <div style="background:var(--bg3);border-radius:var(--radius-sm);
                     padding:16px;margin-bottom:16px;
