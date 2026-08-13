@@ -32,7 +32,7 @@ let _syncReady     = false;
 let _unsubscribers = [];
 
 // ============================================
-// LOAD FIREBASE
+// LOAD FIREBASE SCRIPTS
 // ============================================
 
 function loadScript(src) {
@@ -53,13 +53,11 @@ async function loadFirebase() {
     for (const src of FIREBASE_SCRIPTS) {
       await loadScript(src);
     }
-
     if (!firebase.apps.length) {
       _firebaseApp = firebase.initializeApp(FIREBASE_CONFIG);
     } else {
       _firebaseApp = firebase.app();
     }
-
     _auth      = firebase.auth();
     _firestore = firebase.firestore();
 
@@ -120,10 +118,13 @@ async function signInWithGoogle() {
     setSyncStatus('pending');
     const provider = new firebase.auth.GoogleAuthProvider();
     provider.setCustomParameters({ prompt: 'select_account' });
-    const result   = await _auth.signInWithPopup(provider);
-    _currentUser   = result.user;
-    _syncReady     = true;
-    setSetting('syncSkipped', false);
+    const result = await _auth.signInWithPopup(provider);
+    _currentUser = result.user;
+    _syncReady   = true;
+    // Don't call setSetting here — avoid triggering sync before ready
+    const s = getSettings();
+    s.syncSkipped = false;
+    saveSettings(s);
     await onSignedIn(_currentUser);
   } catch (err) {
     console.error('Sign-in error:', err);
@@ -135,34 +136,36 @@ async function signInWithGoogle() {
 }
 
 // ============================================
-// AFTER SIGN IN
+// AFTER SIGN IN — correct order
 // ============================================
 
 async function onSignedIn(user) {
   hideSyncLoginScreen();
 
-  // STEP 1: Pull settings from cloud FIRST
+  // 1. Pull preferences FIRST (source of truth)
   await pullSettings();
 
-  // STEP 2: Pull all data from cloud
+  // 2. Pull all transaction/account data
   await pullFromCloud();
 
-  // STEP 3: Check if user has ANY accounts
-  // If not (brand new user), create defaults
+  // 3. Only create defaults if genuinely new user
   const localAccounts = await getAllAccounts();
   if (localAccounts.length === 0) {
     await createDefaultAccounts();
   }
 
-  // STEP 4: Push local data to cloud
+  // 4. Push everything local up to cloud
   await pushToCloud();
 
-  // STEP 5: Start listening for changes
+  // 5. Start real-time listeners
   startRealtimeListeners();
   startPreferencesListener();
 
   setSyncStatus('ok');
-  setSetting('lastSynced', new Date().toISOString());
+  // Use saveSettings directly to avoid triggering sync loop
+  const s = getSettings();
+  s.lastSynced = new Date().toISOString();
+  saveSettings(s);
   updateLastSyncedLabel();
 
   if (typeof appInitialized !== 'undefined' && appInitialized) {
@@ -172,15 +175,18 @@ async function onSignedIn(user) {
   }
 }
 
+// ============================================
+// CREATE DEFAULT ACCOUNTS (new users only)
+// ============================================
+
 async function createDefaultAccounts() {
   const defaults = [
-    { name: 'MTN MoMo 1', type: 'momo', bankName: '', color: '#F5C518', order: 0 },
-    { name: 'MTN MoMo 2', type: 'momo', bankName: '', color: '#F97316', order: 1 },
+    { name: 'MTN MoMo 1', type: 'momo', bankName: '',       color: '#F5C518', order: 0 },
+    { name: 'MTN MoMo 2', type: 'momo', bankName: '',       color: '#F97316', order: 1 },
     { name: 'CalBank',    type: 'bank', bankName: 'CalBank', color: '#3B82F6', order: 2 },
     { name: 'GTBank',     type: 'bank', bankName: 'GTBank',  color: '#22C55E', order: 3 },
-    { name: 'Cash',       type: 'cash', bankName: '', color: '#A855F7', order: 4 }
+    { name: 'Cash',       type: 'cash', bankName: '',        color: '#A855F7', order: 4 }
   ];
-
   for (let i = 0; i < defaults.length; i++) {
     await saveAccount({
       id:              generateId(),
@@ -205,7 +211,9 @@ function showSyncLoginScreen() {
   }, { once: true });
 
   el('sync-skip-btn')?.addEventListener('click', async () => {
-    setSetting('syncSkipped', true);
+    const s = getSettings();
+    s.syncSkipped = true;
+    saveSettings(s);
     setSyncStatus('offline');
     hideSyncLoginScreen();
     await launchMainApp();
@@ -214,6 +222,188 @@ function showSyncLoginScreen() {
 
 function hideSyncLoginScreen() {
   hide('sync-login-screen');
+}
+
+// ============================================
+// PULL SETTINGS FROM CLOUD (source of truth)
+// ============================================
+
+async function pullSettings() {
+  if (!_syncReady || !_currentUser || !_firestore) return;
+
+  try {
+    const uid  = _currentUser.uid;
+    const snap = await _firestore
+      .collection('users').doc(uid)
+      .collection('preferences').doc('user_prefs')
+      .get();
+
+    if (!snap.exists) return;
+    const prefs = snap.data();
+
+    // Preserve local-only keys before overwriting settings
+    const localLastSynced  = getSetting('lastSynced', null);
+    const localSyncSkipped = getSetting('syncSkipped', false);
+
+    if (prefs.settings) {
+      prefs.settings.lastSynced  = localLastSynced;
+      prefs.settings.syncSkipped = localSyncSkipped;
+      saveSettings(prefs.settings);
+    }
+
+    // Apply all preference arrays directly to localStorage
+    // (raw, no sync trigger — we're pulling from cloud)
+    if (prefs.expenseCategories && prefs.expenseCategories.length > 0) {
+      localStorage.setItem('ml_expense_cats',
+        JSON.stringify(prefs.expenseCategories));
+    }
+    if (prefs.incomeCategories && prefs.incomeCategories.length > 0) {
+      localStorage.setItem('ml_income_cats',
+        JSON.stringify(prefs.incomeCategories));
+    }
+    if (prefs.vendorPresets && prefs.vendorPresets.length > 0) {
+      localStorage.setItem('ml_vendors',
+        JSON.stringify(prefs.vendorPresets));
+    }
+    if (prefs.savingsAccountIds) {
+      localStorage.setItem('ml_savings_accounts',
+        JSON.stringify(prefs.savingsAccountIds));
+    }
+    if (prefs.excludedAccountIds) {
+      localStorage.setItem('ml_excluded_accounts',
+        JSON.stringify(prefs.excludedAccountIds));
+    }
+    if (prefs.categoryUsage) {
+      localStorage.setItem('ml_cat_usage',
+        JSON.stringify(prefs.categoryUsage));
+    }
+    if (prefs.balanceVisibility) {
+      localStorage.setItem('ml_balance_vis',
+        JSON.stringify(prefs.balanceVisibility));
+    }
+
+    // Re-apply theme immediately
+    const theme = getSetting('theme', 'dark');
+    document.documentElement.setAttribute('data-theme', theme);
+
+  } catch (err) {
+    console.error('Pull settings error:', err);
+  }
+}
+
+// ============================================
+// SYNC SETTINGS TO CLOUD
+// ============================================
+
+async function syncSettings() {
+  if (!_syncReady || !_currentUser || !_firestore) return;
+
+  try {
+    const uid   = _currentUser.uid;
+    const prefs = {
+      id:                 'user_prefs',
+      settings:           getSettings(),
+      expenseCategories:  getExpenseCategories(),
+      incomeCategories:   getIncomeCategories(),
+      vendorPresets:      getVendorPresets(),
+      savingsAccountIds:  getSavingsAccountIds(),
+      excludedAccountIds: getExcludedAccountIds(),
+      categoryUsage:      getCategoryUsage(),
+      balanceVisibility:  getBalanceVisibility(),
+      updatedAt:          Date.now()
+    };
+
+    await _firestore
+      .collection('users').doc(uid)
+      .collection('preferences').doc('user_prefs')
+      .set(prefs); // full overwrite
+
+    setSyncStatus('ok');
+
+  } catch (err) {
+    console.error('Sync settings error:', err);
+  }
+}
+
+// ============================================
+// REAL-TIME PREFERENCES LISTENER
+// ============================================
+
+function startPreferencesListener() {
+  if (!_syncReady || !_currentUser || !_firestore) return;
+
+  const uid = _currentUser.uid;
+
+  const unsub = _firestore
+    .collection('users').doc(uid)
+    .collection('preferences').doc('user_prefs')
+    .onSnapshot(async (snap) => {
+      if (!snap.exists) return;
+
+      // Ignore changes triggered by THIS device
+      // (they came from our own syncSettings call)
+      // We detect this by checking if updatedAt is very recent
+      const prefs     = snap.data();
+      const updatedAt = prefs.updatedAt || 0;
+      const now       = Date.now();
+
+      // If updated within last 3 seconds by us, skip
+      if (now - updatedAt < 3000) return;
+
+      // Apply from another device
+      const localLastSynced  = getSetting('lastSynced', null);
+      const localSyncSkipped = getSetting('syncSkipped', false);
+
+      if (prefs.settings) {
+        prefs.settings.lastSynced  = localLastSynced;
+        prefs.settings.syncSkipped = localSyncSkipped;
+        saveSettings(prefs.settings);
+      }
+      if (prefs.expenseCategories && prefs.expenseCategories.length > 0) {
+        localStorage.setItem('ml_expense_cats',
+          JSON.stringify(prefs.expenseCategories));
+      }
+      if (prefs.incomeCategories && prefs.incomeCategories.length > 0) {
+        localStorage.setItem('ml_income_cats',
+          JSON.stringify(prefs.incomeCategories));
+      }
+      if (prefs.vendorPresets && prefs.vendorPresets.length > 0) {
+        localStorage.setItem('ml_vendors',
+          JSON.stringify(prefs.vendorPresets));
+      }
+      if (prefs.savingsAccountIds) {
+        localStorage.setItem('ml_savings_accounts',
+          JSON.stringify(prefs.savingsAccountIds));
+      }
+      if (prefs.excludedAccountIds) {
+        localStorage.setItem('ml_excluded_accounts',
+          JSON.stringify(prefs.excludedAccountIds));
+      }
+      if (prefs.categoryUsage) {
+        localStorage.setItem('ml_cat_usage',
+          JSON.stringify(prefs.categoryUsage));
+      }
+      if (prefs.balanceVisibility) {
+        localStorage.setItem('ml_balance_vis',
+          JSON.stringify(prefs.balanceVisibility));
+      }
+
+      // Re-apply theme
+      const theme = getSetting('theme', 'dark');
+      document.documentElement.setAttribute('data-theme', theme);
+
+      // Refresh UI if app is running
+      if (typeof appInitialized !== 'undefined' && appInitialized) {
+        await renderDashboard();
+        await renderAccountCards();
+        loadSettingsIntoPage();
+      }
+
+    }, (err) => {
+      console.error('Preferences listener error:', err);
+    });
+
+  _unsubscribers.push(unsub);
 }
 
 // ============================================
@@ -246,11 +436,12 @@ async function pushToCloud() {
       }
     }
 
-    // Also sync settings/preferences
     await syncSettings();
 
     setSyncStatus('ok');
-    setSetting('lastSynced', new Date().toISOString());
+    const s = getSettings();
+    s.lastSynced = new Date().toISOString();
+    saveSettings(s);
     updateLastSyncedLabel();
 
   } catch (err) {
@@ -291,7 +482,7 @@ async function pullFromCloud() {
 }
 
 // ============================================
-// REAL-TIME LISTENERS
+// REAL-TIME DATA LISTENERS
 // ============================================
 
 function startRealtimeListeners() {
@@ -342,68 +533,6 @@ function startRealtimeListeners() {
   });
 }
 
-function startPreferencesListener() {
-  if (!_syncReady || !_currentUser || !_firestore) return;
-
-  const uid = _currentUser.uid;
-
-  const unsub = _firestore
-    .collection('users').doc(uid)
-    .collection('preferences').doc('user_prefs')
-    .onSnapshot(async (doc) => {
-      if (!doc.exists) return;
-      const prefs = doc.data();
-
-      // Apply cloud settings
-      if (prefs.settings) {
-        const cloud = prefs.settings;
-        cloud.lastSynced  = getSetting('lastSynced', null);
-        cloud.syncSkipped = getSetting('syncSkipped', false);
-        saveSettings(cloud);
-      }
-      if (prefs.expenseCategories) {
-        localStorage.setItem('ml_expense_cats',
-          JSON.stringify(prefs.expenseCategories));
-      }
-      if (prefs.incomeCategories) {
-        localStorage.setItem('ml_income_cats',
-          JSON.stringify(prefs.incomeCategories));
-      }
-      if (prefs.vendorPresets) {
-        localStorage.setItem('ml_vendors',
-          JSON.stringify(prefs.vendorPresets));
-      }
-      if (prefs.savingsAccountIds) {
-        localStorage.setItem('ml_savings_accounts',
-          JSON.stringify(prefs.savingsAccountIds));
-      }
-      if (prefs.excludedAccountIds) {
-        localStorage.setItem('ml_excluded_accounts',
-          JSON.stringify(prefs.excludedAccountIds));
-      }
-      if (prefs.categoryUsage) {
-        localStorage.setItem('ml_cat_usage',
-          JSON.stringify(prefs.categoryUsage));
-      }
-      if (prefs.balanceVisibility) {
-        localStorage.setItem('ml_balance_vis',
-          JSON.stringify(prefs.balanceVisibility));
-      }
-
-      // Refresh UI
-      if (typeof appInitialized !== 'undefined' && appInitialized) {
-        await renderDashboard();
-        await renderAccountCards();
-        loadSettingsIntoPage();
-      }
-
-    }, (err) => {
-      console.error('Preferences listener error:', err);
-    });
-
-  _unsubscribers.push(unsub);
-}
-
 function stopRealtimeListeners() {
   _unsubscribers.forEach(u => u());
   _unsubscribers = [];
@@ -422,8 +551,6 @@ async function syncItem(store, item) {
       .collection(store).doc(item.id)
       .set(item, { merge: true });
     setSyncStatus('ok');
-    setSetting('lastSynced', new Date().toISOString());
-    updateLastSyncedLabel();
   } catch (err) {
     console.error(`Sync item error (${store}):`, err);
     setSyncStatus('offline');
@@ -453,22 +580,18 @@ function setSyncStatus(status) {
     pending: el('sync-icon-pending'),
     offline: el('sync-icon-offline')
   };
-
   Object.values(icons).forEach(ic => {
     if (ic) ic.style.display = 'none';
   });
-
   if (icons[status]) icons[status].style.display = 'block';
 
   const label = el('sync-state-label');
   if (!label) return;
-
   const map = {
     ok:      { text: '✅ Synced',     color: 'var(--income)' },
     pending: { text: '🔄 Syncing...', color: 'var(--accent)' },
     offline: { text: '📴 Offline',    color: 'var(--text3)'  }
   };
-
   if (map[status]) {
     label.textContent = map[status].text;
     label.style.color = map[status].color;
@@ -476,7 +599,7 @@ function setSyncStatus(status) {
 }
 
 function updateLastSyncedLabel() {
-  const label      = el('last-synced-label');
+  const label = el('last-synced-label');
   if (!label) return;
   const lastSynced = getSetting('lastSynced', null);
   if (!lastSynced) { label.textContent = 'Never'; return; }
@@ -498,100 +621,13 @@ function initForceSyncBtn() {
       return;
     }
     showToast('Syncing...', 'default', 1500);
+    await syncSettings();
     await pushToCloud();
     await pullFromCloud();
+    await pullSettings();
     await refreshAll();
     showToast('Sync complete ✓', 'success');
   });
-}
-
-// ============================================
-// SYNC SETTINGS & PREFERENCES
-// ============================================
-
-async function syncSettings() {
-  if (!_syncReady || !_currentUser || !_firestore) return;
-
-  try {
-    const uid = _currentUser.uid;
-
-    const prefs = {
-      id:                 'user_prefs',
-      settings:           getSettings(),
-      expenseCategories:  getExpenseCategories(),
-      incomeCategories:   getIncomeCategories(),
-      vendorPresets:      getVendorPresets(),
-      savingsAccountIds:  getSavingsAccountIds(),
-      excludedAccountIds: getExcludedAccountIds(),
-      categoryUsage:      getCategoryUsage(),
-      balanceVisibility:  getBalanceVisibility(),
-      updatedAt:          Date.now()
-    };
-
-    await _firestore
-      .collection('users').doc(uid)
-      .collection('preferences').doc('user_prefs')
-      .set(prefs);  // Full overwrite, not merge
-
-  } catch (err) {
-    console.error('Sync settings error:', err);
-  }
-}
-
-async function pullSettings() {
-  if (!_syncReady || !_currentUser || !_firestore) return;
-
-  try {
-    const uid = _currentUser.uid;
-    const doc = await _firestore
-      .collection('users').doc(uid)
-      .collection('preferences').doc('user_prefs')
-      .get();
-
-    if (!doc.exists) return;
-    const prefs = doc.data();
-
-    // Apply ALL cloud settings — cloud is the source of truth
-    if (prefs.settings) {
-      const cloudSettings = prefs.settings;
-      // Keep these local-only (don't overwrite)
-      cloudSettings.lastSynced  = getSetting('lastSynced', null);
-      cloudSettings.syncSkipped = getSetting('syncSkipped', false);
-      saveSettings(cloudSettings);
-    }
-
-    if (prefs.expenseCategories) {
-      localStorage.setItem('ml_expense_cats',
-        JSON.stringify(prefs.expenseCategories));
-    }
-    if (prefs.incomeCategories) {
-      localStorage.setItem('ml_income_cats',
-        JSON.stringify(prefs.incomeCategories));
-    }
-    if (prefs.vendorPresets) {
-      localStorage.setItem('ml_vendors',
-        JSON.stringify(prefs.vendorPresets));
-    }
-    if (prefs.savingsAccountIds) {
-      localStorage.setItem('ml_savings_accounts',
-        JSON.stringify(prefs.savingsAccountIds));
-    }
-    if (prefs.excludedAccountIds) {
-      localStorage.setItem('ml_excluded_accounts',
-        JSON.stringify(prefs.excludedAccountIds));
-    }
-    if (prefs.categoryUsage) {
-      localStorage.setItem('ml_cat_usage',
-        JSON.stringify(prefs.categoryUsage));
-    }
-    if (prefs.balanceVisibility) {
-      localStorage.setItem('ml_balance_vis',
-        JSON.stringify(prefs.balanceVisibility));
-    }
-
-  } catch (err) {
-    console.error('Pull settings error:', err);
-  }
 }
 
 // ============================================
