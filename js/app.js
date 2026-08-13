@@ -16,7 +16,9 @@ let appInitialized = false;
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await openDB();
-    await seedDefaultAccounts();
+    // DO NOT call seedDefaultAccounts here.
+    // Accounts are created by sync.js after
+    // checking cloud data, or manually by user.
 
     await new Promise(resolve => setTimeout(resolve, 1500));
 
@@ -47,7 +49,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 // ============================================
 
 function initOnboarding() {
-  let slide  = 0;
+  let slide = 0;
   const slides  = qsa('.onboarding-slide');
   const dots    = qsa('.onboarding-dots .dot');
   const nextBtn = el('onboard-next');
@@ -59,7 +61,9 @@ function initOnboarding() {
     setTimeout(() => slides[slide]?.classList.remove('exit'), 400);
     slide = index;
     slides[slide]?.classList.add('active');
-    dots.forEach((dot, i) => dot.classList.toggle('active', i === slide));
+    dots.forEach((dot, i) =>
+      dot.classList.toggle('active', i === slide)
+    );
     if (nextBtn) {
       nextBtn.textContent = slide === slides.length - 1
         ? 'Get Started' : 'Next';
@@ -102,9 +106,12 @@ async function launchApp() {
   initFabMenu();
   initMoreMenu();
   initForceSyncBtn();
+  initRefreshButton();
   registerServiceWorker();
 
-  // Start sync (handles sign-in screen if needed)
+  // initSync handles everything:
+  // login screen → pull settings → pull data
+  // → create defaults if new → push → listeners
   await initSync();
 }
 
@@ -133,14 +140,22 @@ function initNavigation() {
     });
   });
 
-  el('go-accounts')?.addEventListener('click',     () => navigateTo('accounts'));
-  el('go-transactions')?.addEventListener('click', () => navigateTo('transactions'));
-  el('view-pay-later')?.addEventListener('click',  () => navigateTo('paylater'));
-  el('go-goals')?.addEventListener('click',        () => navigateTo('goals'));
-  el('go-debts')?.addEventListener('click',        () => navigateTo('debts'));
-  el('go-recurring')?.addEventListener('click',    () => navigateTo('recurring'));
-  el('go-settings')?.addEventListener('click',     () => navigateTo('settings'));
-  el('go-about')?.addEventListener('click',        () => openAboutSheet());
+  el('go-accounts')?.addEventListener('click',
+    () => navigateTo('accounts'));
+  el('go-transactions')?.addEventListener('click',
+    () => navigateTo('transactions'));
+  el('view-pay-later')?.addEventListener('click',
+    () => navigateTo('paylater'));
+  el('go-goals')?.addEventListener('click',
+    () => navigateTo('goals'));
+  el('go-debts')?.addEventListener('click',
+    () => navigateTo('debts'));
+  el('go-recurring')?.addEventListener('click',
+    () => navigateTo('recurring'));
+  el('go-settings')?.addEventListener('click',
+    () => navigateTo('settings'));
+  el('go-about')?.addEventListener('click',
+    () => openAboutSheet());
 
   qsa('.back-btn').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -191,12 +206,17 @@ function navigateTo(pageId) {
   });
 
   const titles = {
-    home: 'My Ledger', transactions: 'Transactions',
-    stats: 'Statistics', paylater: 'Pay Later',
-    accounts: 'Accounts', budgets: 'Budgets',
-    more: 'More', goals: 'Savings Goals',
-    debts: 'Debts & Loans', recurring: 'Recurring',
-    settings: 'Settings'
+    home:         'My Ledger',
+    transactions: 'Transactions',
+    stats:        'Statistics',
+    paylater:     'Pay Later',
+    accounts:     'Accounts',
+    budgets:      'Budgets',
+    more:         'More',
+    goals:        'Savings Goals',
+    debts:        'Debts & Loans',
+    recurring:    'Recurring',
+    settings:     'Settings'
   };
   setText('page-title', titles[pageId] || 'My Ledger');
 
@@ -206,18 +226,34 @@ function navigateTo(pageId) {
 
 async function renderPageContent(pageId) {
   switch (pageId) {
-    case 'home':         await renderDashboard();          break;
+    case 'home':
+      await renderDashboard();
+      break;
     case 'transactions':
       await renderAllTransactions();
       await populateAccountSelects();
       break;
-    case 'stats':        await renderStats();              break;
-    case 'paylater':     await renderPayLaterPage();       break;
-    case 'accounts':     await renderAccountsList();       break;
-    case 'budgets':      await renderBudgets();            break;
-    case 'goals':        await renderGoals();              break;
-    case 'debts':        await renderDebts();              break;
-    case 'recurring':    await renderRecurring();          break;
+    case 'stats':
+      await renderStats();
+      break;
+    case 'paylater':
+      await renderPayLaterPage();
+      break;
+    case 'accounts':
+      await renderAccountsList();
+      break;
+    case 'budgets':
+      await renderBudgets();
+      break;
+    case 'goals':
+      await renderGoals();
+      break;
+    case 'debts':
+      await renderDebts();
+      break;
+    case 'recurring':
+      await renderRecurring();
+      break;
     case 'settings':
       await populateAccountSelects();
       loadSettingsIntoPage();
@@ -230,8 +266,7 @@ async function renderPageContent(pageId) {
 // ============================================
 
 function initFabMenu() {
-  const fabBtn  = el('fab-add');
-  const fabMenu = el('fab-menu');
+  const fabBtn = el('fab-add');
 
   fabBtn?.addEventListener('click', () => {
     fabMenuOpen ? closeFabMenu() : openFabMenu();
@@ -269,7 +304,9 @@ function initMoreMenu() {
       <span class="more-item-icon">🎯</span>
       <span class="more-item-label">Budgets</span>
       <span class="more-item-arrow">›</span>`;
-    goRecurring.parentNode.insertBefore(budgetBtn, goRecurring.nextSibling);
+    goRecurring.parentNode.insertBefore(
+      budgetBtn, goRecurring.nextSibling
+    );
     budgetBtn.addEventListener('click', () => navigateTo('budgets'));
   }
 }
@@ -323,7 +360,8 @@ async function renderRecurring() {
         </div>
         <div class="recurring-right">
           <div class="recurring-amount"
-               style="color:${isInc ? 'var(--income)' : 'var(--expense)'}">
+               style="color:${isInc
+                 ? 'var(--income)' : 'var(--expense)'}">
             ${isInc ? '+' : '-'}${formatCurrency(rec.amount)}
           </div>
           <div class="recurring-next">Next: ${nextStr}</div>
@@ -417,8 +455,8 @@ async function updateNotificationBadge() {
     ]);
 
     let count = pending.length;
-
     const now = new Date();
+
     debts.forEach(d => {
       if (d.dueDate && new Date(d.dueDate) < now && d.status !== 'paid')
         count++;
@@ -560,7 +598,7 @@ function registerServiceWorker() {
           newWorker.addEventListener('statechange', () => {
             if (newWorker.state === 'installed' &&
                 navigator.serviceWorker.controller) {
-              showToast('App updated! Pull to refresh.', 'default', 5000);
+              showToast('App updated! Refresh to apply.', 'default', 5000);
             }
           });
         });
@@ -579,8 +617,8 @@ function registerServiceWorker() {
   script.async  = true;
   script.onload = () => {
     if (window.Chart) {
-      Chart.defaults.color          = '#9999BB';
-      Chart.defaults.font.family    = "'Inter', sans-serif";
+      Chart.defaults.color             = '#9999BB';
+      Chart.defaults.font.family       = "'Inter', sans-serif";
       Chart.defaults.animation.duration = 400;
     }
   };
