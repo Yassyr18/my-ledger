@@ -30,15 +30,23 @@ function initSearch() {
     searchResults.innerHTML = '';
   });
 
-  // Live search as user types
-  searchInput.addEventListener('input', debounce(async () => {
+  // Search immediately as the text changes. Keeping this direct is more
+  // reliable across desktop and installed/mobile browser inputs.
+  const runSearch = () => {
     const query = searchInput.value.trim().toLowerCase();
     if (!query) {
       searchResults.innerHTML = '';
       return;
     }
-    await performSearch(query, searchResults);
-  }, 300));
+    searchResults.innerHTML = `
+      <div style="padding:12px 0;color:var(--text3);font-size:13px">
+        Searching…
+      </div>`;
+    void performSearch(query, searchResults);
+  };
+
+  searchInput.addEventListener('input', runSearch);
+  searchInput.addEventListener('keyup', runSearch);
 
   // Clear on escape
   searchInput.addEventListener('keydown', (e) => {
@@ -55,59 +63,72 @@ function initSearch() {
 // ============================================
 
 async function performSearch(query, container) {
-  const [transactions, accounts] = await Promise.all([
-    getAllTransactions(),
-    getAllAccounts()
-  ]);
+  try {
+    const [transactions, accounts] = await Promise.all([
+      getAllTransactions(),
+      getAllAccounts()
+    ]);
 
-  // Search across multiple fields
-  const results = transactions.filter(tx => {
-    const desc    = (tx.description || '').toLowerCase();
-    const vendor  = (tx.vendor || '').toLowerCase();
-    const source  = (tx.source || '').toLowerCase();
-    const note    = (tx.note || '').toLowerCase();
-    const cat     = getCategoryLabel(tx.category, tx.type).toLowerCase();
-    const amtStr  = String(tx.amount);
-    const acc     = accounts.find(a =>
-      a.id === tx.accountId ||
-      a.id === tx.fromAccountId ||
-      a.id === tx.toAccountId
-    );
-    const accName = (acc?.name || '').toLowerCase();
+    // Search across multiple fields. Transfers and old entries may not have
+    // a category, so every field must have a safe text fallback.
+    const results = transactions.filter(tx => {
+      const desc    = String(tx.description || '').toLowerCase();
+      const vendor  = String(tx.vendor || '').toLowerCase();
+      const source  = String(tx.source || '').toLowerCase();
+      const note    = String(tx.note || '').toLowerCase();
+      const cat     = String(
+        tx.type === 'transfer' ? 'transfer' :
+        getCategoryLabel(tx.category, tx.type) || ''
+      ).toLowerCase();
+      const amtStr  = String(tx.amount || '');
+      const acc     = accounts.find(a =>
+        a.id === tx.accountId ||
+        a.id === tx.fromAccountId ||
+        a.id === tx.toAccountId
+      );
+      const accName = String(acc?.name || '').toLowerCase();
 
-    return desc.includes(query)    ||
-           vendor.includes(query)  ||
-           source.includes(query)  ||
-           note.includes(query)    ||
-           cat.includes(query)     ||
-           amtStr.includes(query)  ||
-           accName.includes(query);
-  }).slice(0, 20); // limit to 20 results
+      return desc.includes(query)    ||
+             vendor.includes(query)  ||
+             source.includes(query)  ||
+             note.includes(query)    ||
+             cat.includes(query)     ||
+             amtStr.includes(query)  ||
+             accName.includes(query);
+    }).slice(0, 20); // limit to 20 results
 
-  if (results.length === 0) {
+    if (results.length === 0) {
+      container.innerHTML = `
+        <div style="text-align:center;padding:20px;
+                    color:var(--text3);font-size:13px">
+          No results for "${escapeHTML(query)}"
+        </div>`;
+      return;
+    }
+
+    container.innerHTML = `
+      <div style="font-size:11px;color:var(--text3);
+                  padding:6px 0 10px;
+                  text-transform:uppercase;letter-spacing:0.5px">
+        ${results.length} result${results.length !== 1 ? 's' : ''}
+      </div>
+      ${results.map(tx => renderSearchResult(tx, accounts, query)).join('')}
+    `;
+
+    // Tap to open detail
+    qsa('.search-result-item', container).forEach(item => {
+      item.addEventListener('click', () => {
+        openTxDetailSheet(item.dataset.id);
+      });
+    });
+  } catch (err) {
+    console.error('Search error:', err);
     container.innerHTML = `
       <div style="text-align:center;padding:20px;
                   color:var(--text3);font-size:13px">
-        No results for "${escapeHTML(query)}"
+        Search could not be completed. Please try again.
       </div>`;
-    return;
   }
-
-  container.innerHTML = `
-    <div style="font-size:11px;color:var(--text3);
-                padding:6px 0 10px;
-                text-transform:uppercase;letter-spacing:0.5px">
-      ${results.length} result${results.length !== 1 ? 's' : ''}
-    </div>
-    ${results.map(tx => renderSearchResult(tx, accounts, query)).join('')}
-  `;
-
-  // Tap to open detail
-  qsa('.search-result-item', container).forEach(item => {
-    item.addEventListener('click', () => {
-      openTxDetailSheet(item.dataset.id);
-    });
-  });
 }
 
 // ============================================
