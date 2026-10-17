@@ -31,10 +31,6 @@ let _currentUser   = null;
 let _syncReady     = false;
 let _unsubscribers = [];
 
-// ============================================
-// LOAD FIREBASE SCRIPTS
-// ============================================
-
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     if (document.querySelector(`script[src="${src}"]`)) {
@@ -62,13 +58,7 @@ async function loadFirebase() {
     _firestore = firebase.firestore();
 
     await _firestore.enablePersistence({ synchronizeTabs: true })
-      .catch(err => {
-        if (err.code === 'failed-precondition') {
-          console.warn('Firestore: multiple tabs open');
-        } else if (err.code === 'unimplemented') {
-          console.warn('Firestore persistence not supported');
-        }
-      });
+      .catch(() => {});
 
     return true;
   } catch (err) {
@@ -77,17 +67,12 @@ async function loadFirebase() {
   }
 }
 
-// ============================================
-// INIT SYNC
-// ============================================
-
 async function initSync() {
   setSyncStatus('pending');
 
   const loaded = await loadFirebase();
   if (!loaded) {
     setSyncStatus('offline');
-    showToast('Sync unavailable. Running offline.', 'warning', 3000);
     await launchMainApp();
     return;
   }
@@ -109,10 +94,6 @@ async function initSync() {
   });
 }
 
-// ============================================
-// GOOGLE SIGN IN
-// ============================================
-
 async function signInWithGoogle() {
   try {
     setSyncStatus('pending');
@@ -121,7 +102,6 @@ async function signInWithGoogle() {
     const result = await _auth.signInWithPopup(provider);
     _currentUser = result.user;
     _syncReady   = true;
-    // Don't call setSetting here — avoid triggering sync before ready
     const s = getSettings();
     s.syncSkipped = false;
     saveSettings(s);
@@ -129,55 +109,57 @@ async function signInWithGoogle() {
   } catch (err) {
     console.error('Sign-in error:', err);
     setSyncStatus('offline');
-    showToast('Sign-in failed. Running offline.', 'error', 3000);
     hideSyncLoginScreen();
     await launchMainApp();
   }
 }
 
 // ============================================
-// AFTER SIGN IN — correct order
+// NON-BLOCKING SIGN IN (Instant Startup)
 // ============================================
 
 async function onSignedIn(user) {
   hideSyncLoginScreen();
 
-  // 1. Pull preferences FIRST (source of truth)
-  await pullSettings();
-
-  // 2. Pull all transaction/account data
-  await pullFromCloud();
-
-  // 3. Only create defaults if genuinely new user
-  const localAccounts = await getAllAccounts();
-  if (localAccounts.length === 0) {
-    await createDefaultAccounts();
-  }
-
-  // 4. Push everything local up to cloud
-  await pushToCloud();
-
-  // 5. Start real-time listeners
-  startRealtimeListeners();
-  startPreferencesListener();
-
-  setSyncStatus('ok');
-  // Use saveSettings directly to avoid triggering sync loop
-  const s = getSettings();
-  s.lastSynced = new Date().toISOString();
-  saveSettings(s);
-  updateLastSyncedLabel();
-
-  if (typeof appInitialized !== 'undefined' && appInitialized) {
-    await refreshAll();
-  } else {
+  // 1. Launch the app immediately using local data so it opens instantly!
+  if (typeof appInitialized !== 'undefined' && !appInitialized) {
     await launchMainApp();
   }
-}
 
-// ============================================
-// CREATE DEFAULT ACCOUNTS (new users only)
-// ============================================
+  // 2. Run cloud sync quietly in the background with a 10-second timeout safety net
+  (async () => {
+    try {
+      await Promise.race([
+        (async () => {
+          await pullSettings();
+          await pullFromCloud();
+          const localAccounts = await getAllAccounts();
+          if (localAccounts.length === 0) {
+            await createDefaultAccounts();
+          }
+          await pushToCloud();
+        })(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Sync timeout')), 10000))
+      ]);
+
+      startRealtimeListeners();
+      startPreferencesListener();
+
+      setSyncStatus('ok');
+      const s = getSettings();
+      s.lastSynced = new Date().toISOString();
+      saveSettings(s);
+      updateLastSyncedLabel();
+
+      if (typeof renderDashboard === 'function') {
+        await renderDashboard();
+      }
+    } catch (err) {
+      console.warn('Background sync deferred/timed out:', err);
+      setSyncStatus('offline');
+    }
+  })();
+}
 
 async function createDefaultAccounts() {
   const defaults = [
@@ -197,10 +179,6 @@ async function createDefaultAccounts() {
     });
   }
 }
-
-// ============================================
-// SYNC LOGIN SCREEN
-// ============================================
 
 function showSyncLoginScreen() {
   hide('splash');
@@ -224,13 +202,8 @@ function hideSyncLoginScreen() {
   hide('sync-login-screen');
 }
 
-// ============================================
-// PULL SETTINGS FROM CLOUD (source of truth)
-// ============================================
-
 async function pullSettings() {
   if (!_syncReady || !_currentUser || !_firestore) return;
-
   try {
     const uid  = _currentUser.uid;
     const snap = await _firestore
@@ -241,7 +214,6 @@ async function pullSettings() {
     if (!snap.exists) return;
     const prefs = snap.data();
 
-    // Preserve local-only keys before overwriting settings
     const localLastSynced  = getSetting('lastSynced', null);
     const localSyncSkipped = getSetting('syncSkipped', false);
 
@@ -251,53 +223,23 @@ async function pullSettings() {
       saveSettings(prefs.settings);
     }
 
-    // Apply all preference arrays directly to localStorage
-    // (raw, no sync trigger — we're pulling from cloud)
-    if (prefs.expenseCategories && prefs.expenseCategories.length > 0) {
-      localStorage.setItem('ml_expense_cats',
-        JSON.stringify(prefs.expenseCategories));
-    }
-    if (prefs.incomeCategories && prefs.incomeCategories.length > 0) {
-      localStorage.setItem('ml_income_cats',
-        JSON.stringify(prefs.incomeCategories));
-    }
-    if (prefs.vendorPresets && prefs.vendorPresets.length > 0) {
-      localStorage.setItem('ml_vendors',
-        JSON.stringify(prefs.vendorPresets));
-    }
-    if (prefs.savingsAccountIds) {
-      localStorage.setItem('ml_savings_accounts',
-        JSON.stringify(prefs.savingsAccountIds));
-    }
-    if (prefs.excludedAccountIds) {
-      localStorage.setItem('ml_excluded_accounts',
-        JSON.stringify(prefs.excludedAccountIds));
-    }
-    if (prefs.categoryUsage) {
-      localStorage.setItem('ml_cat_usage',
-        JSON.stringify(prefs.categoryUsage));
-    }
-    if (prefs.balanceVisibility) {
-      localStorage.setItem('ml_balance_vis',
-        JSON.stringify(prefs.balanceVisibility));
-    }
+    if (prefs.expenseCategories?.length) localStorage.setItem('ml_expense_cats', JSON.stringify(prefs.expenseCategories));
+    if (prefs.incomeCategories?.length) localStorage.setItem('ml_income_cats', JSON.stringify(prefs.incomeCategories));
+    if (prefs.vendorPresets?.length) localStorage.setItem('ml_vendors', JSON.stringify(prefs.vendorPresets));
+    if (prefs.savingsAccountIds) localStorage.setItem('ml_savings_accounts', JSON.stringify(prefs.savingsAccountIds));
+    if (prefs.excludedAccountIds) localStorage.setItem('ml_excluded_accounts', JSON.stringify(prefs.excludedAccountIds));
+    if (prefs.categoryUsage) localStorage.setItem('ml_cat_usage', JSON.stringify(prefs.categoryUsage));
+    if (prefs.balanceVisibility) localStorage.setItem('ml_balance_vis', JSON.stringify(prefs.balanceVisibility));
 
-    // Re-apply theme immediately
     const theme = getSetting('theme', 'dark');
     document.documentElement.setAttribute('data-theme', theme);
-
   } catch (err) {
     console.error('Pull settings error:', err);
   }
 }
 
-// ============================================
-// SYNC SETTINGS TO CLOUD
-// ============================================
-
 async function syncSettings() {
   if (!_syncReady || !_currentUser || !_firestore) return;
-
   try {
     const uid   = _currentUser.uid;
     const prefs = {
@@ -316,22 +258,16 @@ async function syncSettings() {
     await _firestore
       .collection('users').doc(uid)
       .collection('preferences').doc('user_prefs')
-      .set(prefs); // full overwrite
+      .set(prefs);
 
     setSyncStatus('ok');
-
   } catch (err) {
     console.error('Sync settings error:', err);
   }
 }
 
-// ============================================
-// REAL-TIME PREFERENCES LISTENER
-// ============================================
-
 function startPreferencesListener() {
   if (!_syncReady || !_currentUser || !_firestore) return;
-
   const uid = _currentUser.uid;
 
   const unsub = _firestore
@@ -339,18 +275,10 @@ function startPreferencesListener() {
     .collection('preferences').doc('user_prefs')
     .onSnapshot(async (snap) => {
       if (!snap.exists) return;
-
-      // Ignore changes triggered by THIS device
-      // (they came from our own syncSettings call)
-      // We detect this by checking if updatedAt is very recent
       const prefs     = snap.data();
       const updatedAt = prefs.updatedAt || 0;
-      const now       = Date.now();
+      if (Date.now() - updatedAt < 3000) return;
 
-      // If updated within last 3 seconds by us, skip
-      if (now - updatedAt < 3000) return;
-
-      // Apply from another device
       const localLastSynced  = getSetting('lastSynced', null);
       const localSyncSkipped = getSetting('syncSkipped', false);
 
@@ -359,60 +287,29 @@ function startPreferencesListener() {
         prefs.settings.syncSkipped = localSyncSkipped;
         saveSettings(prefs.settings);
       }
-      if (prefs.expenseCategories && prefs.expenseCategories.length > 0) {
-        localStorage.setItem('ml_expense_cats',
-          JSON.stringify(prefs.expenseCategories));
-      }
-      if (prefs.incomeCategories && prefs.incomeCategories.length > 0) {
-        localStorage.setItem('ml_income_cats',
-          JSON.stringify(prefs.incomeCategories));
-      }
-      if (prefs.vendorPresets && prefs.vendorPresets.length > 0) {
-        localStorage.setItem('ml_vendors',
-          JSON.stringify(prefs.vendorPresets));
-      }
-      if (prefs.savingsAccountIds) {
-        localStorage.setItem('ml_savings_accounts',
-          JSON.stringify(prefs.savingsAccountIds));
-      }
-      if (prefs.excludedAccountIds) {
-        localStorage.setItem('ml_excluded_accounts',
-          JSON.stringify(prefs.excludedAccountIds));
-      }
-      if (prefs.categoryUsage) {
-        localStorage.setItem('ml_cat_usage',
-          JSON.stringify(prefs.categoryUsage));
-      }
-      if (prefs.balanceVisibility) {
-        localStorage.setItem('ml_balance_vis',
-          JSON.stringify(prefs.balanceVisibility));
-      }
+      if (prefs.expenseCategories?.length) localStorage.setItem('ml_expense_cats', JSON.stringify(prefs.expenseCategories));
+      if (prefs.incomeCategories?.length) localStorage.setItem('ml_income_cats', JSON.stringify(prefs.incomeCategories));
+      if (prefs.vendorPresets?.length) localStorage.setItem('ml_vendors', JSON.stringify(prefs.vendorPresets));
+      if (prefs.savingsAccountIds) localStorage.setItem('ml_savings_accounts', JSON.stringify(prefs.savingsAccountIds));
+      if (prefs.excludedAccountIds) localStorage.setItem('ml_excluded_accounts', JSON.stringify(prefs.excludedAccountIds));
+      if (prefs.categoryUsage) localStorage.setItem('ml_cat_usage', JSON.stringify(prefs.categoryUsage));
+      if (prefs.balanceVisibility) localStorage.setItem('ml_balance_vis', JSON.stringify(prefs.balanceVisibility));
 
-      // Re-apply theme
       const theme = getSetting('theme', 'dark');
       document.documentElement.setAttribute('data-theme', theme);
 
-      // Refresh UI if app is running
       if (typeof appInitialized !== 'undefined' && appInitialized) {
         await renderDashboard();
-        await renderAccountCards();
+        if (typeof renderAccountCards === 'function') await renderAccountCards();
         loadSettingsIntoPage();
       }
-
-    }, (err) => {
-      console.error('Preferences listener error:', err);
-    });
+    }, () => {});
 
   _unsubscribers.push(unsub);
 }
 
-// ============================================
-// PUSH LOCAL → CLOUD
-// ============================================
-
 async function pushToCloud() {
   if (!_syncReady || !_currentUser || !_firestore) return;
-
   try {
     setSyncStatus('pending');
     const uid = _currentUser.uid;
@@ -427,9 +324,7 @@ async function pushToCloud() {
         const chunk = items.slice(i, i + chunkSize);
         const batch = db.batch();
         chunk.forEach(item => {
-          const ref = db
-            .collection('users').doc(uid)
-            .collection(store).doc(item.id);
+          const ref = db.collection('users').doc(uid).collection(store).doc(item.id);
           batch.set(ref, item, { merge: true });
         });
         await batch.commit();
@@ -437,53 +332,37 @@ async function pushToCloud() {
     }
 
     await syncSettings();
-
     setSyncStatus('ok');
     const s = getSettings();
     s.lastSynced = new Date().toISOString();
     saveSettings(s);
     updateLastSyncedLabel();
-
   } catch (err) {
     console.error('Push error:', err);
     setSyncStatus('offline');
   }
 }
 
-// ============================================
-// PULL CLOUD → LOCAL
-// ============================================
-
 async function pullFromCloud() {
   if (!_syncReady || !_currentUser || !_firestore) return;
-
   try {
     const uid = _currentUser.uid;
     const db  = _firestore;
 
     for (const store of SYNC_STORES) {
-      const snapshot = await db
-        .collection('users').doc(uid)
-        .collection(store).get();
-
+      const snapshot = await db.collection('users').doc(uid).collection(store).get();
       for (const docSnap of snapshot.docs) {
         const cloudItem = docSnap.data();
         const localItem = await dbGet(store, cloudItem.id);
-        if (!localItem ||
-            (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
+        if (!localItem || (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
           await dbPut(store, cloudItem);
         }
       }
     }
-
   } catch (err) {
     console.error('Pull error:', err);
   }
 }
-
-// ============================================
-// REAL-TIME DATA LISTENERS
-// ============================================
 
 function startRealtimeListeners() {
   stopRealtimeListeners();
@@ -493,41 +372,28 @@ function startRealtimeListeners() {
   const db  = _firestore;
 
   SYNC_STORES.forEach(store => {
-    const unsub = db
-      .collection('users').doc(uid)
-      .collection(store)
+    const unsub = db.collection('users').doc(uid).collection(store)
       .onSnapshot(async (snapshot) => {
         let changed = false;
-
         for (const change of snapshot.docChanges()) {
           const cloudItem = change.doc.data();
-
           if (change.type === 'added' || change.type === 'modified') {
             const localItem = await dbGet(store, cloudItem.id);
-            if (!localItem ||
-                (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
+            if (!localItem || (cloudItem.updatedAt || 0) > (localItem.updatedAt || 0)) {
               await dbPut(store, cloudItem);
               changed = true;
             }
           }
-
           if (change.type === 'removed') {
             await dbDelete(store, change.doc.id);
             changed = true;
           }
         }
-
         if (changed && typeof renderDashboard === 'function') {
           await renderDashboard();
-          if (typeof renderAccountCards === 'function') {
-            await renderAccountCards();
-          }
+          if (typeof renderAccountCards === 'function') await renderAccountCards();
         }
-
-      }, (err) => {
-        console.error(`Listener error (${store}):`, err);
-        setSyncStatus('offline');
-      });
+      }, () => { setSyncStatus('offline'); });
 
     _unsubscribers.push(unsub);
   });
@@ -538,18 +404,11 @@ function stopRealtimeListeners() {
   _unsubscribers = [];
 }
 
-// ============================================
-// SYNC SINGLE ITEM
-// ============================================
-
 async function syncItem(store, item) {
   if (!_syncReady || !_currentUser || !_firestore) return;
   try {
     const uid = _currentUser.uid;
-    await _firestore
-      .collection('users').doc(uid)
-      .collection(store).doc(item.id)
-      .set(item, { merge: true });
+    await _firestore.collection('users').doc(uid).collection(store).doc(item.id).set(item, { merge: true });
     setSyncStatus('ok');
   } catch (err) {
     console.error(`Sync item error (${store}):`, err);
@@ -561,18 +420,11 @@ async function deleteSyncItem(store, id) {
   if (!_syncReady || !_currentUser || !_firestore) return;
   try {
     const uid = _currentUser.uid;
-    await _firestore
-      .collection('users').doc(uid)
-      .collection(store).doc(id)
-      .delete();
+    await _firestore.collection('users').doc(uid).collection(store).doc(id).delete();
   } catch (err) {
     console.error(`Delete sync error (${store}):`, err);
   }
 }
-
-// ============================================
-// STATUS UI
-// ============================================
 
 function setSyncStatus(status) {
   const icons = {
@@ -610,10 +462,6 @@ function updateLastSyncedLabel() {
   });
 }
 
-// ============================================
-// FORCE SYNC BUTTON
-// ============================================
-
 function initForceSyncBtn() {
   el('force-sync-btn')?.addEventListener('click', async () => {
     if (!_syncReady) {
@@ -629,10 +477,6 @@ function initForceSyncBtn() {
     showToast('Sync complete ✓', 'success');
   });
 }
-
-// ============================================
-// ONLINE / OFFLINE
-// ============================================
 
 window.addEventListener('online', async () => {
   showToast('Back online — syncing...', 'default', 2000);
